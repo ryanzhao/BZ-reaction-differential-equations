@@ -5,6 +5,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -13,6 +14,10 @@
 #include <random>
 #include <sstream>
 #include <stdexcept>
+#include <random>
+#include <memory>
+#include <stdexcept>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -33,6 +38,21 @@ struct Params {
     double Du = 1.0;
     double Dv = 0.55;
     double Dw = 0.15;
+    int nx = 240;
+    int ny = 240;
+    double dx = 1.0;
+    double dt = 0.004;
+    int steps = 200000;
+    int display_every = 2;
+
+    double epsilon = 0.04;
+    double f = 1.4;
+    double q = 0.002;
+    double phi = 0.08;
+
+    double Du = 1.0;
+    double Dv = 0.6;
+    double Dw = 0.2;
 
     bool save_frames = false;
     int frame_every = 20;
@@ -50,6 +70,11 @@ struct Params {
     WaveMode wave_mode = WaveMode::Outward;
 
     bool auto_contrast = true;
+    int pacemaker_period = 320;
+    int pacemaker_radius = 6;
+
+    enum class ViewField { U, W, Mix };
+    ViewField view_field = ViewField::Mix;
 };
 
 struct Field {
@@ -79,6 +104,7 @@ static void map_ferroin_color(double value, unsigned char& r, unsigned char& g, 
     double x = std::clamp(value, 0.0, 1.0);
     r = static_cast<unsigned char>(255.0 * (1.0 - x));
     g = static_cast<unsigned char>(70.0 * (1.0 - std::abs(2.0 * x - 1.0)));
+    g = static_cast<unsigned char>(60.0 * (1.0 - std::abs(2.0 * x - 1.0)));
     b = static_cast<unsigned char>(255.0 * x);
 }
 
@@ -116,6 +142,11 @@ static void build_visual_field(const Params& p, const Field& u, const Field& w, 
 }
 
 static void write_ppm(const Field& visual, int frame_id, const std::string& out_dir) {
+    // Mix gives clearer moving excitation fronts for beginners.
+    return std::clamp(0.7 * u + 0.3 * w, 0.0, 1.0);
+}
+
+static void write_ppm(const Field& w, int frame_id, const std::string& out_dir) {
     std::filesystem::create_directories(out_dir);
     std::ostringstream name;
     name << out_dir << "/frame_" << std::setw(6) << std::setfill('0') << frame_id << ".ppm";
@@ -126,6 +157,12 @@ static void write_ppm(const Field& visual, int frame_id, const std::string& out_
         for (int i = 0; i < visual.nx; ++i) {
             unsigned char r, g, b;
             map_ferroin_color(visual(i, j), r, g, b);
+    ofs << "P6\n" << w.nx << " " << w.ny << "\n255\n";
+
+    for (int j = 0; j < w.ny; ++j) {
+        for (int i = 0; i < w.nx; ++i) {
+            unsigned char r, g, b;
+            map_ferroin_color(w(i, j), r, g, b);
             ofs.write(reinterpret_cast<char*>(&r), 1);
             ofs.write(reinterpret_cast<char*>(&g), 1);
             ofs.write(reinterpret_cast<char*>(&b), 1);
@@ -216,6 +253,10 @@ class X11Renderer {
             XEvent ev;
             XNextEvent(display_, &ev);
             if (ev.type == DestroyNotify || ev.type == KeyPress) {
+            if (ev.type == DestroyNotify) {
+                return false;
+            }
+            if (ev.type == KeyPress) {
                 return false;
             }
         }
@@ -227,6 +268,11 @@ class X11Renderer {
             for (int i = 0; i < params_.nx; ++i) {
                 unsigned char r, g, b;
                 map_ferroin_color(visual(i, j), r, g, b);
+    void draw_field(const Field& u, const Field& w, int step) {
+        for (int j = 0; j < params_.ny; ++j) {
+            for (int i = 0; i < params_.nx; ++i) {
+                unsigned char r, g, b;
+                map_ferroin_color(view_value(params_, u(i, j), w(i, j)), r, g, b);
                 unsigned long pixel = channel_to_masked(r, red_mask_) | channel_to_masked(g, green_mask_) |
                                       channel_to_masked(b, blue_mask_);
 
@@ -244,6 +290,7 @@ class X11Renderer {
         XPutImage(display_, window_, gc_, image_, 0, 0, 0, 0, width_, height_);
         std::ostringstream title;
         title << "BZ Reaction step=" << step << " (按任意键退出)";
+        title << "BZ Reaction  step=" << step << " (按任意键退出)";
         XStoreName(display_, window_, title.str().c_str());
         XFlush(display_);
     }
@@ -351,6 +398,10 @@ static void apply_pacemaker(const Params& p, Field& u, Field& w) {
     }
 }
 
+        }
+    }
+}
+
 int main(int argc, char** argv) {
     Params p;
     parse_args(argc, argv, p);
@@ -362,6 +413,9 @@ int main(int argc, char** argv) {
     std::mt19937 rng(7);
     std::uniform_real_distribution<double> noise(-4e-4, 4e-4);
 
+    std::mt19937 rng(7);
+    std::uniform_real_distribution<double> noise(-2e-4, 2e-4);
+
     for (int j = 0; j < p.ny; ++j) {
         for (int i = 0; i < p.nx; ++i) {
             u(i, j) = 0.02 + noise(rng);
@@ -372,6 +426,20 @@ int main(int argc, char** argv) {
 
     // Initial trigger
     apply_source_patch(u, w, p.nx / 2, p.ny / 2, std::max(8, p.nx / 28), 1.0, 0.85);
+    int cx = p.nx / 3;
+    int cy = p.ny / 2;
+    int radius = std::max(8, p.nx / 25);
+    for (int j = 0; j < p.ny; ++j) {
+        for (int i = 0; i < p.nx; ++i) {
+            int dx = i - cx;
+            int dy = j - cy;
+            if (dx * dx + dy * dy <= radius * radius) {
+                u(i, j) = 0.85;
+                v(i, j) = 0.20;
+                w(i, j) = 0.80;
+            }
+        }
+    }
 
     std::unique_ptr<X11Renderer> renderer;
     if (p.display_every > 0) {
@@ -387,6 +455,12 @@ int main(int argc, char** argv) {
     int frame_id = 0;
     if (p.save_frames) {
         build_visual_field(p, u, w, visual);
+        Field visual(p.nx, p.ny, 0.0);
+        for (int j = 0; j < p.ny; ++j) {
+            for (int i = 0; i < p.nx; ++i) {
+                visual(i, j) = view_value(p, u(i, j), w(i, j));
+            }
+        }
         write_ppm(visual, frame_id++, p.output_dir);
     }
 
@@ -406,6 +480,17 @@ int main(int argc, char** argv) {
                 const double du = reaction_u + p.Du * laplacian(u, i, j, p.dx);
                 const double dv = reaction_v + p.Dv * laplacian(v, i, j, p.dx);
                 const double dw = reaction_w + p.Dw * laplacian(w, i, j, p.dx);
+                double uu = u(i, j);
+                double vv = v(i, j);
+                double ww = w(i, j);
+
+                double reaction_u = (uu * (1.0 - uu) - p.f * vv * ((uu - p.q) / (uu + p.q))) / p.epsilon;
+                double reaction_v = uu - vv;
+                double reaction_w = p.phi * (uu - ww);
+
+                double du = reaction_u + p.Du * laplacian(u, i, j, p.dx);
+                double dv = reaction_v + p.Dv * laplacian(v, i, j, p.dx);
+                double dw = reaction_w + p.Dw * laplacian(w, i, j, p.dx);
 
                 u_next(i, j) = std::clamp(uu + p.dt * du, 0.0, 1.5);
                 v_next(i, j) = std::clamp(vv + p.dt * dv, 0.0, 1.5);
@@ -419,6 +504,18 @@ int main(int argc, char** argv) {
 
         if (p.pacemaker && step % p.pacemaker_period == 0) {
             apply_pacemaker(p, u, w);
+            const int px = p.nx / 4;
+            const int py = p.ny / 2;
+            for (int j = 0; j < p.ny; ++j) {
+                for (int i = 0; i < p.nx; ++i) {
+                    const int dx = i - px;
+                    const int dy = j - py;
+                    if (dx * dx + dy * dy <= p.pacemaker_radius * p.pacemaker_radius) {
+                        u(i, j) = 1.1;
+                        w(i, j) = std::max(w(i, j), 0.9);
+                    }
+                }
+            }
         }
 
         if (renderer && step % p.display_every == 0) {
@@ -429,6 +526,7 @@ int main(int argc, char** argv) {
 
             build_visual_field(p, u, w, visual);
             renderer->draw_visual(visual, step);
+            renderer->draw_field(u, w, step);
 
             auto now = std::chrono::steady_clock::now();
             auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_draw).count();
@@ -440,6 +538,12 @@ int main(int argc, char** argv) {
 
         if (p.save_frames && step % p.frame_every == 0) {
             build_visual_field(p, u, w, visual);
+            Field visual(p.nx, p.ny, 0.0);
+            for (int j = 0; j < p.ny; ++j) {
+                for (int i = 0; i < p.nx; ++i) {
+                    visual(i, j) = view_value(p, u(i, j), w(i, j));
+                }
+            }
             write_ppm(visual, frame_id++, p.output_dir);
         }
 
