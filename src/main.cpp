@@ -39,6 +39,13 @@ struct Params {
     int frame_every = 20;
     std::string output_dir = "output";
     int pixel_scale = 3;
+
+    bool pacemaker = true;
+    int pacemaker_period = 320;
+    int pacemaker_radius = 6;
+
+    enum class ViewField { U, W, Mix };
+    ViewField view_field = ViewField::Mix;
 };
 
 struct Field {
@@ -69,6 +76,17 @@ static void map_ferroin_color(double value, unsigned char& r, unsigned char& g, 
     r = static_cast<unsigned char>(255.0 * (1.0 - x));
     g = static_cast<unsigned char>(60.0 * (1.0 - std::abs(2.0 * x - 1.0)));
     b = static_cast<unsigned char>(255.0 * x);
+}
+
+static double view_value(const Params& p, double u, double w) {
+    if (p.view_field == Params::ViewField::U) {
+        return u;
+    }
+    if (p.view_field == Params::ViewField::W) {
+        return w;
+    }
+    // Mix gives clearer moving excitation fronts for beginners.
+    return std::clamp(0.7 * u + 0.3 * w, 0.0, 1.0);
 }
 
 static void write_ppm(const Field& w, int frame_id, const std::string& out_dir) {
@@ -180,11 +198,11 @@ class X11Renderer {
         return true;
     }
 
-    void draw_field(const Field& w, int step) {
+    void draw_field(const Field& u, const Field& w, int step) {
         for (int j = 0; j < params_.ny; ++j) {
             for (int i = 0; i < params_.nx; ++i) {
                 unsigned char r, g, b;
-                map_ferroin_color(w(i, j), r, g, b);
+                map_ferroin_color(view_value(params_, u(i, j), w(i, j)), r, g, b);
                 unsigned long pixel = channel_to_masked(r, red_mask_) | channel_to_masked(g, green_mask_) |
                                       channel_to_masked(b, blue_mask_);
 
@@ -245,6 +263,19 @@ static void parse_args(int argc, char** argv, Params& p) {
             p.nx = std::max(16, std::stoi(a.substr(5)));
         } else if (a.rfind("--ny=", 0) == 0) {
             p.ny = std::max(16, std::stoi(a.substr(5)));
+        } else if (a == "--no-pacemaker") {
+            p.pacemaker = false;
+        } else if (a.rfind("--pacemaker-period=", 0) == 0) {
+            p.pacemaker_period = std::max(20, std::stoi(a.substr(19)));
+        } else if (a.rfind("--view=", 0) == 0) {
+            const std::string v = a.substr(7);
+            if (v == "u") {
+                p.view_field = Params::ViewField::U;
+            } else if (v == "w") {
+                p.view_field = Params::ViewField::W;
+            } else {
+                p.view_field = Params::ViewField::Mix;
+            }
         }
     }
 }
@@ -295,7 +326,13 @@ int main(int argc, char** argv) {
 
     int frame_id = 0;
     if (p.save_frames) {
-        write_ppm(w, frame_id++, p.output_dir);
+        Field visual(p.nx, p.ny, 0.0);
+        for (int j = 0; j < p.ny; ++j) {
+            for (int i = 0; i < p.nx; ++i) {
+                visual(i, j) = view_value(p, u(i, j), w(i, j));
+            }
+        }
+        write_ppm(visual, frame_id++, p.output_dir);
     }
 
     auto last_draw = std::chrono::steady_clock::now();
@@ -325,12 +362,27 @@ int main(int argc, char** argv) {
         std::swap(v.data, v_next.data);
         std::swap(w.data, w_next.data);
 
+        if (p.pacemaker && step % p.pacemaker_period == 0) {
+            const int px = p.nx / 4;
+            const int py = p.ny / 2;
+            for (int j = 0; j < p.ny; ++j) {
+                for (int i = 0; i < p.nx; ++i) {
+                    const int dx = i - px;
+                    const int dy = j - py;
+                    if (dx * dx + dy * dy <= p.pacemaker_radius * p.pacemaker_radius) {
+                        u(i, j) = 1.1;
+                        w(i, j) = std::max(w(i, j), 0.9);
+                    }
+                }
+            }
+        }
+
         if (renderer && step % p.display_every == 0) {
             if (!renderer->process_events()) {
                 std::cout << "窗口关闭，模拟提前结束。\n";
                 break;
             }
-            renderer->draw_field(w, step);
+            renderer->draw_field(u, w, step);
 
             auto now = std::chrono::steady_clock::now();
             auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_draw).count();
@@ -341,7 +393,13 @@ int main(int argc, char** argv) {
         }
 
         if (p.save_frames && step % p.frame_every == 0) {
-            write_ppm(w, frame_id++, p.output_dir);
+            Field visual(p.nx, p.ny, 0.0);
+            for (int j = 0; j < p.ny; ++j) {
+                for (int i = 0; i < p.nx; ++i) {
+                    visual(i, j) = view_value(p, u(i, j), w(i, j));
+                }
+            }
+            write_ppm(visual, frame_id++, p.output_dir);
         }
 
         if (step % 1000 == 0) {
