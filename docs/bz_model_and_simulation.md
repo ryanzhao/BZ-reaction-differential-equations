@@ -164,3 +164,40 @@ excitability, refractory recovery, and self-organized wave patterns.
 - Field, Körös, Noyes（FKN）机理与其简化（Oregonator）
 - Tyson/Fife 等对 BZ 可激发波与反应扩散图样的数值研究
 - Winfree 关于螺旋波与可激发介质动力学
+
+## 10) 螺旋波的数学描述（和实验图样对应）
+
+在 BZ 可激发介质中，螺旋波通常由“断裂的激发前沿 + 不应期”形成。常见数学框架：
+
+1. **反应扩散方程（Oregonator / Barkley 类）**
+   \[
+   \partial_t \mathbf{y}=\mathbf{F}(\mathbf{y})+D\nabla^2\mathbf{y}
+   \]
+   其中 \(\mathbf{y}\) 可取 \((u,v,w)\) 或 \((u,v)\)。
+
+2. **波前几何近似（曲率关系）**
+   \[
+   c_n \approx c_0 - D\kappa
+   \]
+   - \(c_n\)：法向传播速度，
+   - \(\kappa\)：前沿曲率。
+
+   螺旋尖端附近曲率大、速度低；远处曲率小、速度接近平面波速度，形成稳定旋转波臂。
+
+3. **不应期 + 重新激发条件**
+   每次激发后抑制变量尚未恢复时，局部不能再次被激发；因此波臂之间有间距，形成条纹/涡旋结构。
+
+这和你提供的培养皿图像一致：淡色波前代表高激发区域，后方是恢复区，前沿连续外扩并卷曲成螺旋臂。
+
+## 11) 经典论文（数学建模与波纹演化）
+
+下面是 BZ 反应数学描述和螺旋波研究中最常引用的文献方向（可直接作为阅读入口）：
+
+1. Field, R. J.; Körös, E.; Noyes, R. M. (1972). *Oscillations in chemical systems. II. Thorough analysis of temporal oscillation in the bromate-cerium-malonic acid system*. JACS.（FKN 机理基础）
+2. Field, R. J.; Noyes, R. M. (1974). *Oscillations in chemical systems. IV. Limit cycle behavior in a model of a real chemical reaction*. J. Chem. Phys.（Oregonator 经典来源）
+3. Tyson, J. J.; Fife, P. C. (1980). *Target patterns in a realistic model of the Belousov–Zhabotinskii reaction*. J. Chem. Phys.（靶心波与反应扩散模型）
+4. Winfree, A. T. (1972). *Spiral waves of chemical activity*. Science.（螺旋波可视化与动力学早期经典）
+5. Tyson, J. J. (1985). *Complex dynamics in the Belousov–Zhabotinskii reaction*. Lecture Notes / reviews.（复杂动力学综述）
+6. Barkley, D. (1991). *A model for fast computer simulation of waves in excitable media*. Physica D.（可激发介质简化模型，螺旋波常用）
+
+> 建议按顺序阅读：FKN/Oregonator \(\rightarrow\) 反应扩散靶心波 \(\rightarrow\) 螺旋波几何与可激发介质通用理论。

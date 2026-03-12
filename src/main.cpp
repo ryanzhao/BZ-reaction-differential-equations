@@ -23,6 +23,11 @@
 #include <vector>
 
 struct Params {
+    int nx = 320;
+    int ny = 320;
+    double dx = 1.0;
+    double dt = 0.0032;
+    int steps = 260000;
     int nx = 260;
     int ny = 260;
     double dx = 1.0;
@@ -57,6 +62,10 @@ struct Params {
     bool save_frames = false;
     int frame_every = 20;
     std::string output_dir = "output";
+    int pixel_scale = 2;
+
+    bool pacemaker = true;
+    int pacemaker_period = 150;
     int pixel_scale = 3;
 
     bool pacemaker = true;
@@ -66,6 +75,11 @@ struct Params {
     enum class ViewField { U, W, Mix };
     ViewField view_field = ViewField::Mix;
 
+    enum class WaveMode { Outward, Inward, Dual, Spiral };
+    WaveMode wave_mode = WaveMode::Spiral;
+
+    bool auto_contrast = true;
+    bool dish_render = true;
     enum class WaveMode { Outward, Inward, Dual };
     WaveMode wave_mode = WaveMode::Outward;
 
@@ -118,12 +132,61 @@ static double view_value(const Params& p, double u, double w) {
     return std::clamp(0.7 * u + 0.3 * w, 0.0, 1.0);
 }
 
+static bool in_dish(const Params& p, int i, int j, double* r_out = nullptr) {
+    const double cx = 0.5 * (p.nx - 1);
+    const double cy = 0.5 * (p.ny - 1);
+    const double dish_radius = 0.47 * std::min(p.nx, p.ny);
+    const double dx = i - cx;
+    const double dy = j - cy;
+    const double r = std::sqrt(dx * dx + dy * dy);
+    if (r_out) {
+        *r_out = r / dish_radius;
+    }
+    return r <= dish_radius;
+}
+
+static void map_petri_color(double x, double r_norm, bool in_domain, unsigned char& r, unsigned char& g,
+                            unsigned char& b) {
+    if (!in_domain) {
+        r = 243;
+        g = 241;
+        b = 239;
+        if (r_norm > 0.98 && r_norm < 1.06) {
+            r = 228;
+            g = 212;
+            b = 210;
+        }
+        return;
+    }
+
+    const double wave = std::pow(std::clamp(x, 0.0, 1.0), 0.85);
+    const double base_r = 210.0;
+    const double base_g = 108.0;
+    const double base_b = 122.0;
+    const double crest_r = 245.0;
+    const double crest_g = 242.0;
+    const double crest_b = 250.0;
+
+    const double rr = base_r * (1.0 - wave) + crest_r * wave;
+    const double gg = base_g * (1.0 - wave) + crest_g * wave;
+    const double bb = base_b * (1.0 - wave) + crest_b * wave;
+
+    r = static_cast<unsigned char>(std::clamp(rr, 0.0, 255.0));
+    g = static_cast<unsigned char>(std::clamp(gg, 0.0, 255.0));
+    b = static_cast<unsigned char>(std::clamp(bb, 0.0, 255.0));
+}
+
 static void build_visual_field(const Params& p, const Field& u, const Field& w, Field& visual) {
     double vmin = 1e9;
     double vmax = -1e9;
 
     for (int j = 0; j < p.ny; ++j) {
         for (int i = 0; i < p.nx; ++i) {
+            if (!in_dish(p, i, j)) {
+                visual(i, j) = 0.0;
+                continue;
+            }
+            const double v = view_value(p, u(i, j), w(i, j));
             double v = view_value(p, u(i, j), w(i, j));
             visual(i, j) = v;
             vmin = std::min(vmin, v);
@@ -136,6 +199,16 @@ static void build_visual_field(const Params& p, const Field& u, const Field& w, 
     }
 
     const double inv = 1.0 / (vmax - vmin);
+    for (int j = 0; j < p.ny; ++j) {
+        for (int i = 0; i < p.nx; ++i) {
+            if (in_dish(p, i, j)) {
+                visual(i, j) = std::clamp((visual(i, j) - vmin) * inv, 0.0, 1.0);
+            }
+        }
+    }
+}
+
+static void write_ppm(const Params& p, const Field& visual, int frame_id, const std::string& out_dir) {
     for (double& x : visual.data) {
         x = std::clamp((x - vmin) * inv, 0.0, 1.0);
     }
@@ -155,6 +228,10 @@ static void write_ppm(const Field& w, int frame_id, const std::string& out_dir) 
 
     for (int j = 0; j < visual.ny; ++j) {
         for (int i = 0; i < visual.nx; ++i) {
+            unsigned char r = 0, g = 0, b = 0;
+            double r_norm = 0.0;
+            const bool inside = in_dish(p, i, j, &r_norm);
+            map_petri_color(visual(i, j), r_norm, inside, r, g, b);
             unsigned char r, g, b;
             map_ferroin_color(visual(i, j), r, g, b);
     ofs << "P6\n" << w.nx << " " << w.ny << "\n255\n";
@@ -211,6 +288,7 @@ class X11Renderer {
         screen_ = DefaultScreen(display_);
         window_ = XCreateSimpleWindow(display_, RootWindow(display_, screen_), 10, 10, width_, height_, 1,
                                       BlackPixel(display_, screen_), WhitePixel(display_, screen_));
+        XStoreName(display_, window_, "BZ reaction (spiral waves)");
 
         XStoreName(display_, window_, "BZ Reaction: red (reduced) -> blue (oxidized)");
         XSelectInput(display_, window_, ExposureMask | KeyPressMask | StructureNotifyMask);
@@ -267,6 +345,9 @@ class X11Renderer {
         for (int j = 0; j < params_.ny; ++j) {
             for (int i = 0; i < params_.nx; ++i) {
                 unsigned char r, g, b;
+                double r_norm = 0.0;
+                const bool inside = in_dish(params_, i, j, &r_norm);
+                map_petri_color(visual(i, j), r_norm, inside, r, g, b);
                 map_ferroin_color(visual(i, j), r, g, b);
     void draw_field(const Field& u, const Field& w, int step) {
         for (int j = 0; j < params_.ny; ++j) {
@@ -277,6 +358,10 @@ class X11Renderer {
                                       channel_to_masked(b, blue_mask_);
 
                 for (int sy = 0; sy < params_.pixel_scale; ++sy) {
+                    const int y = j * params_.pixel_scale + sy;
+                    auto* row = reinterpret_cast<std::uint32_t*>(image_buffer_.data() + y * image_stride_);
+                    for (int sx = 0; sx < params_.pixel_scale; ++sx) {
+                        const int x = i * params_.pixel_scale + sx;
                     int y = j * params_.pixel_scale + sy;
                     auto* row = reinterpret_cast<std::uint32_t*>(image_buffer_.data() + y * image_stride_);
                     for (int sx = 0; sx < params_.pixel_scale; ++sx) {
@@ -289,6 +374,7 @@ class X11Renderer {
 
         XPutImage(display_, window_, gc_, image_, 0, 0, 0, 0, width_, height_);
         std::ostringstream title;
+        title << "BZ spiral wave step=" << step << " (按任意键退出)";
         title << "BZ Reaction step=" << step << " (按任意键退出)";
         title << "BZ Reaction  step=" << step << " (按任意键退出)";
         XStoreName(display_, window_, title.str().c_str());
@@ -331,6 +417,11 @@ static void parse_args(int argc, char** argv, Params& p) {
         } else if (a.rfind("--scale=", 0) == 0) {
             p.pixel_scale = std::max(1, std::stoi(a.substr(8)));
         } else if (a.rfind("--nx=", 0) == 0) {
+            p.nx = std::max(32, std::stoi(a.substr(5)));
+        } else if (a.rfind("--ny=", 0) == 0) {
+            p.ny = std::max(32, std::stoi(a.substr(5)));
+        } else if (a.rfind("--frame-every=", 0) == 0) {
+            p.frame_every = std::max(1, std::stoi(a.substr(14)));
             p.nx = std::max(16, std::stoi(a.substr(5)));
         } else if (a.rfind("--ny=", 0) == 0) {
             p.ny = std::max(16, std::stoi(a.substr(5)));
@@ -353,10 +444,13 @@ static void parse_args(int argc, char** argv, Params& p) {
                 p.wave_mode = Params::WaveMode::Inward;
             } else if (v == "dual") {
                 p.wave_mode = Params::WaveMode::Dual;
+            } else if (v == "spiral") {
+                p.wave_mode = Params::WaveMode::Spiral;
             } else {
                 p.wave_mode = Params::WaveMode::Outward;
             }
         } else if (a.rfind("--contrast=", 0) == 0) {
+            p.auto_contrast = (a.substr(11) != "fixed");
             const std::string v = a.substr(11);
             p.auto_contrast = (v != "fixed");
         }
@@ -366,11 +460,35 @@ static void parse_args(int argc, char** argv, Params& p) {
 static void apply_source_patch(Field& u, Field& w, int cx, int cy, int radius, double u_peak, double w_peak) {
     for (int j = 0; j < u.ny; ++j) {
         for (int i = 0; i < u.nx; ++i) {
+            const int dx = i - cx;
+            const int dy = j - cy;
             int dx = i - cx;
             int dy = j - cy;
             if (dx * dx + dy * dy <= radius * radius) {
                 u(i, j) = std::max(u(i, j), u_peak);
                 w(i, j) = std::max(w(i, j), w_peak);
+            }
+        }
+    }
+}
+
+static void seed_spiral_break(const Params& p, Field& u, Field& w) {
+    const int cx = p.nx / 2;
+    const int cy = p.ny / 2;
+    const int r0 = p.nx / 8;
+
+    for (int j = 0; j < p.ny; ++j) {
+        for (int i = 0; i < p.nx; ++i) {
+            const int dx = i - cx;
+            const int dy = j - cy;
+            const double rr = std::sqrt(static_cast<double>(dx * dx + dy * dy));
+            if (rr > r0 - 2 && rr < r0 + 2 && dx > 0) {
+                u(i, j) = 1.05;
+                w(i, j) = 0.9;
+            }
+            if (rr > r0 - 1 && rr < r0 + 1 && dy > 0 && dx < 0) {
+                // small broken segment -> spiral tips
+                u(i, j) = 0.2;
             }
         }
     }
@@ -390,12 +508,17 @@ static void apply_pacemaker(const Params& p, Field& u, Field& w) {
 
     if (p.wave_mode == Params::WaveMode::Inward || p.wave_mode == Params::WaveMode::Dual) {
         const int ex = p.nx / 2;
+        const int ey = p.ny / 10;
         const int ey = p.ny / 12;
         apply_source_patch(u, w, ex, ey, p.pacemaker_radius, 1.05, 0.85);
         apply_source_patch(u, w, p.nx - ex, ey, p.pacemaker_radius, 1.05, 0.85);
         apply_source_patch(u, w, ex, p.ny - ey, p.pacemaker_radius, 1.05, 0.85);
         apply_source_patch(u, w, p.nx - ex, p.ny - ey, p.pacemaker_radius, 1.05, 0.85);
     }
+
+    if (p.wave_mode == Params::WaveMode::Spiral) {
+        apply_source_patch(u, w, p.nx / 3, p.ny / 2, p.pacemaker_radius, 1.07, 0.88);
+        apply_source_patch(u, w, 2 * p.nx / 3, p.ny / 2, p.pacemaker_radius, 1.07, 0.88);
 }
 
         }
@@ -421,6 +544,17 @@ int main(int argc, char** argv) {
             u(i, j) = 0.02 + noise(rng);
             v(i, j) = 0.01 + noise(rng);
             w(i, j) = 0.02 + noise(rng);
+            if (!in_dish(p, i, j)) {
+                u(i, j) = 0.0;
+                v(i, j) = 0.0;
+                w(i, j) = 0.0;
+            }
+        }
+    }
+
+    apply_source_patch(u, w, p.nx / 2, p.ny / 2, std::max(8, p.nx / 28), 1.0, 0.85);
+    if (p.wave_mode == Params::WaveMode::Spiral) {
+        seed_spiral_break(p, u, w);
         }
     }
 
@@ -455,6 +589,7 @@ int main(int argc, char** argv) {
     int frame_id = 0;
     if (p.save_frames) {
         build_visual_field(p, u, w, visual);
+        write_ppm(p, visual, frame_id++, p.output_dir);
         Field visual(p.nx, p.ny, 0.0);
         for (int j = 0; j < p.ny; ++j) {
             for (int i = 0; i < p.nx; ++i) {
@@ -469,6 +604,13 @@ int main(int argc, char** argv) {
     for (int step = 1; step <= p.steps; ++step) {
         for (int j = 0; j < p.ny; ++j) {
             for (int i = 0; i < p.nx; ++i) {
+                if (!in_dish(p, i, j)) {
+                    u_next(i, j) = 0.0;
+                    v_next(i, j) = 0.0;
+                    w_next(i, j) = 0.0;
+                    continue;
+                }
+
                 const double uu = u(i, j);
                 const double vv = v(i, j);
                 const double ww = w(i, j);
@@ -538,6 +680,7 @@ int main(int argc, char** argv) {
 
         if (p.save_frames && step % p.frame_every == 0) {
             build_visual_field(p, u, w, visual);
+            write_ppm(p, visual, frame_id++, p.output_dir);
             Field visual(p.nx, p.ny, 0.0);
             for (int j = 0; j < p.ny; ++j) {
                 for (int i = 0; i < p.nx; ++i) {
@@ -558,5 +701,6 @@ int main(int argc, char** argv) {
         std::cout << "ffmpeg -framerate 30 -i " << p.output_dir
                   << "/frame_%06d.ppm -pix_fmt yuv420p bz.mp4\n";
     }
+
     return 0;
 }
