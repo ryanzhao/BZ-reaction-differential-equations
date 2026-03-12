@@ -1,3 +1,19 @@
+# BZ 反应微分方程模拟（C++，可弹窗动画）
+
+现在仓库包含：
+
+- `docs/bz_model_and_simulation.md`：从 ODE 到 PDE（反应-扩散）的数学建模说明。
+- `src/main.cpp`：Oregonator 风格 2D 模拟器，支持：
+  - **实时窗口动画（X11）**
+  - **可选保存帧为 PPM**（用于合成视频）
+
+## 1) 编译
+
+```bash
+g++ -std=c++17 -O2 -o bz_sim src/main.cpp -lX11
+```
+
+## 2) 运行（弹窗动画）
 # BZ Reaction Differential Equations
 
 This repository now includes:
@@ -17,6 +33,46 @@ g++ -std=c++17 -O2 -o bz_sim src/bz_simulation.cpp
 ./bz_sim
 ```
 
+说明：
+- 会弹出窗口，显示 BZ 波纹颜色变化（红=还原态，蓝=氧化态）。
+- 按任意键或关闭窗口可提前结束。
+
+## 3) 无界面运行（例如服务器）
+
+```bash
+./bz_sim --headless
+```
+
+## 4) 保存帧并合成视频
+
+```bash
+./bz_sim --save --headless
+ffmpeg -framerate 30 -i output/frame_%06d.ppm -pix_fmt yuv420p bz.mp4
+```
+
+## 5) 如果你看到“中心蓝点不动”
+
+可以用下面这个命令，开启默认 pacemaker 的同时，把可视化改成 `u+w` 混合前沿（更容易看到波在传播）：
+
+```bash
+./bz_sim --view=mix --save --headless --steps=12000
+```
+
+如果你想只看慢变量（颜色更像“红氧化态”），可以改成：
+
+```bash
+./bz_sim --view=w
+```
+
+## 常用参数
+
+- `--steps=50000` 设置步数
+- `--dt=0.004` 设置时间步长
+- `--nx=240 --ny=240` 设置网格
+- `--scale=3` 设置窗口像素放大倍数
+- `--view=u|w|mix` 选择显示字段（默认 `mix`）
+- `--no-pacemaker` 关闭周期激发源
+- `--pacemaker-period=320` 设置周期激发间隔
 The simulation writes `frame_XXXXX.ppm` images. Convert to video:
 
 ```bash
