@@ -1,26 +1,44 @@
-# BZ Reaction Differential Equation Simulation (C++)
+# BZ 反应微分方程模拟（C++，可弹窗动画）
 
-This repository now contains:
+现在仓库包含：
 
-- `docs/bz_model_and_simulation.md`: mathematical modeling guide from ODE to reaction–diffusion PDE.
-- `src/main.cpp`: a standalone C++ Oregonator-style 2D reaction–diffusion simulator that outputs PPM frames.
+- `docs/bz_model_and_simulation.md`：从 ODE 到 PDE（反应-扩散）的数学建模说明。
+- `src/main.cpp`：Oregonator 风格 2D 模拟器，支持：
+  - **实时窗口动画（X11）**
+  - **可选保存帧为 PPM**（用于合成视频）
 
-## Build
+## 1) 编译
 
 ```bash
-g++ -std=c++17 -O2 -o bz_sim src/main.cpp
+g++ -std=c++17 -O2 -o bz_sim src/main.cpp -lX11
 ```
 
-## Run
+## 2) 运行（弹窗动画）
 
 ```bash
 ./bz_sim
 ```
 
-Frames are written to `output/frame_XXXXX.ppm`.
+说明：
+- 会弹出窗口，显示 BZ 波纹颜色变化（红=还原态，蓝=氧化态）。
+- 按任意键或关闭窗口可提前结束。
 
-Optional video assembly:
+## 3) 无界面运行（例如服务器）
 
 ```bash
-ffmpeg -framerate 25 -i output/frame_%05d.ppm -pix_fmt yuv420p bz.mp4
+./bz_sim --headless
 ```
+
+## 4) 保存帧并合成视频
+
+```bash
+./bz_sim --save --headless
+ffmpeg -framerate 30 -i output/frame_%06d.ppm -pix_fmt yuv420p bz.mp4
+```
+
+## 常用参数
+
+- `--steps=50000` 设置步数
+- `--dt=0.004` 设置时间步长
+- `--nx=240 --ny=240` 设置网格
+- `--scale=3` 设置窗口像素放大倍数
