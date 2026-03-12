@@ -1,1 +1,26 @@
+# BZ Reaction Differential Equation Simulation (C++)
 
+This repository now contains:
+
+- `docs/bz_model_and_simulation.md`: mathematical modeling guide from ODE to reaction–diffusion PDE.
+- `src/main.cpp`: a standalone C++ Oregonator-style 2D reaction–diffusion simulator that outputs PPM frames.
+
+## Build
+
+```bash
+g++ -std=c++17 -O2 -o bz_sim src/main.cpp
+```
+
+## Run
+
+```bash
+./bz_sim
+```
+
+Frames are written to `output/frame_XXXXX.ppm`.
+
+Optional video assembly:
+
+```bash
+ffmpeg -framerate 25 -i output/frame_%05d.ppm -pix_fmt yuv420p bz.mp4
+```
