@@ -142,3 +142,25 @@ Visualization:
 
 This model is intentionally reduced, but it captures the core nonlinear mathematics: oscillation,
 excitability, refractory recovery, and self-organized wave patterns.
+
+## 9) 文献中常见的 BZ 波纹演化特征（用于调参参考）
+
+基于 Oregonator / 可激发介质文献的典型现象：
+
+- **Target waves（靶心波）**：由局部起搏点（pacemaker）周期触发，形成同心圆外扩。
+- **Inward waves（内向波）**：边界或外环触发后，前沿可向中心收缩传播。
+- **Spiral waves（螺旋波）**：波前断裂（噪声、障碍、参数突变）后，波头旋转形成螺旋。
+- **Refractory period（不应期）**：每一圈波后留下恢复区，导致后续波有固定间距。
+
+想得到更“像实验”的视频，可优先使用：
+
+- 较短起搏周期（例如 140–200），
+- `view=mix`（更能看到波前运动），
+- 自动对比度（提升弱波前可见性），
+- 适度噪声与更长演化时间（>10k steps）。
+
+这些设置对应可激发反应扩散系统的常见图样学行为：
+
+- Field, Körös, Noyes（FKN）机理与其简化（Oregonator）
+- Tyson/Fife 等对 BZ 可激发波与反应扩散图样的数值研究
+- Winfree 关于螺旋波与可激发介质动力学

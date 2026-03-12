@@ -10,6 +10,10 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <memory>
+#include <random>
+#include <sstream>
+#include <stdexcept>
 #include <random>
 #include <memory>
 #include <stdexcept>
@@ -19,6 +23,21 @@
 #include <vector>
 
 struct Params {
+    int nx = 260;
+    int ny = 260;
+    double dx = 1.0;
+    double dt = 0.0035;
+    int steps = 240000;
+    int display_every = 2;
+
+    double epsilon = 0.04;
+    double f = 1.35;
+    double q = 0.002;
+    double phi = 0.075;
+
+    double Du = 1.0;
+    double Dv = 0.55;
+    double Dw = 0.15;
     int nx = 240;
     int ny = 240;
     double dx = 1.0;
@@ -41,6 +60,16 @@ struct Params {
     int pixel_scale = 3;
 
     bool pacemaker = true;
+    int pacemaker_period = 180;
+    int pacemaker_radius = 7;
+
+    enum class ViewField { U, W, Mix };
+    ViewField view_field = ViewField::Mix;
+
+    enum class WaveMode { Outward, Inward, Dual };
+    WaveMode wave_mode = WaveMode::Outward;
+
+    bool auto_contrast = true;
     int pacemaker_period = 320;
     int pacemaker_radius = 6;
 
@@ -74,6 +103,7 @@ static double laplacian(const Field& a, int i, int j, double dx) {
 static void map_ferroin_color(double value, unsigned char& r, unsigned char& g, unsigned char& b) {
     double x = std::clamp(value, 0.0, 1.0);
     r = static_cast<unsigned char>(255.0 * (1.0 - x));
+    g = static_cast<unsigned char>(70.0 * (1.0 - std::abs(2.0 * x - 1.0)));
     g = static_cast<unsigned char>(60.0 * (1.0 - std::abs(2.0 * x - 1.0)));
     b = static_cast<unsigned char>(255.0 * x);
 }
@@ -85,6 +115,33 @@ static double view_value(const Params& p, double u, double w) {
     if (p.view_field == Params::ViewField::W) {
         return w;
     }
+    return std::clamp(0.7 * u + 0.3 * w, 0.0, 1.0);
+}
+
+static void build_visual_field(const Params& p, const Field& u, const Field& w, Field& visual) {
+    double vmin = 1e9;
+    double vmax = -1e9;
+
+    for (int j = 0; j < p.ny; ++j) {
+        for (int i = 0; i < p.nx; ++i) {
+            double v = view_value(p, u(i, j), w(i, j));
+            visual(i, j) = v;
+            vmin = std::min(vmin, v);
+            vmax = std::max(vmax, v);
+        }
+    }
+
+    if (!p.auto_contrast || vmax - vmin < 1e-9) {
+        return;
+    }
+
+    const double inv = 1.0 / (vmax - vmin);
+    for (double& x : visual.data) {
+        x = std::clamp((x - vmin) * inv, 0.0, 1.0);
+    }
+}
+
+static void write_ppm(const Field& visual, int frame_id, const std::string& out_dir) {
     // Mix gives clearer moving excitation fronts for beginners.
     return std::clamp(0.7 * u + 0.3 * w, 0.0, 1.0);
 }
@@ -94,6 +151,12 @@ static void write_ppm(const Field& w, int frame_id, const std::string& out_dir) 
     std::ostringstream name;
     name << out_dir << "/frame_" << std::setw(6) << std::setfill('0') << frame_id << ".ppm";
     std::ofstream ofs(name.str(), std::ios::binary);
+    ofs << "P6\n" << visual.nx << " " << visual.ny << "\n255\n";
+
+    for (int j = 0; j < visual.ny; ++j) {
+        for (int i = 0; i < visual.nx; ++i) {
+            unsigned char r, g, b;
+            map_ferroin_color(visual(i, j), r, g, b);
     ofs << "P6\n" << w.nx << " " << w.ny << "\n255\n";
 
     for (int j = 0; j < w.ny; ++j) {
@@ -144,6 +207,7 @@ class X11Renderer {
         if (!display_) {
             throw std::runtime_error("无法连接到 X11 显示器。请在图形桌面下运行，或使用 --headless。");
         }
+
         screen_ = DefaultScreen(display_);
         window_ = XCreateSimpleWindow(display_, RootWindow(display_, screen_), 10, 10, width_, height_, 1,
                                       BlackPixel(display_, screen_), WhitePixel(display_, screen_));
@@ -188,6 +252,7 @@ class X11Renderer {
         while (XPending(display_)) {
             XEvent ev;
             XNextEvent(display_, &ev);
+            if (ev.type == DestroyNotify || ev.type == KeyPress) {
             if (ev.type == DestroyNotify) {
                 return false;
             }
@@ -198,6 +263,11 @@ class X11Renderer {
         return true;
     }
 
+    void draw_visual(const Field& visual, int step) {
+        for (int j = 0; j < params_.ny; ++j) {
+            for (int i = 0; i < params_.nx; ++i) {
+                unsigned char r, g, b;
+                map_ferroin_color(visual(i, j), r, g, b);
     void draw_field(const Field& u, const Field& w, int step) {
         for (int j = 0; j < params_.ny; ++j) {
             for (int i = 0; i < params_.nx; ++i) {
@@ -219,6 +289,7 @@ class X11Renderer {
 
         XPutImage(display_, window_, gc_, image_, 0, 0, 0, 0, width_, height_);
         std::ostringstream title;
+        title << "BZ Reaction step=" << step << " (按任意键退出)";
         title << "BZ Reaction  step=" << step << " (按任意键退出)";
         XStoreName(display_, window_, title.str().c_str());
         XFlush(display_);
@@ -276,6 +347,57 @@ static void parse_args(int argc, char** argv, Params& p) {
             } else {
                 p.view_field = Params::ViewField::Mix;
             }
+        } else if (a.rfind("--wave-mode=", 0) == 0) {
+            const std::string v = a.substr(12);
+            if (v == "inward") {
+                p.wave_mode = Params::WaveMode::Inward;
+            } else if (v == "dual") {
+                p.wave_mode = Params::WaveMode::Dual;
+            } else {
+                p.wave_mode = Params::WaveMode::Outward;
+            }
+        } else if (a.rfind("--contrast=", 0) == 0) {
+            const std::string v = a.substr(11);
+            p.auto_contrast = (v != "fixed");
+        }
+    }
+}
+
+static void apply_source_patch(Field& u, Field& w, int cx, int cy, int radius, double u_peak, double w_peak) {
+    for (int j = 0; j < u.ny; ++j) {
+        for (int i = 0; i < u.nx; ++i) {
+            int dx = i - cx;
+            int dy = j - cy;
+            if (dx * dx + dy * dy <= radius * radius) {
+                u(i, j) = std::max(u(i, j), u_peak);
+                w(i, j) = std::max(w(i, j), w_peak);
+            }
+        }
+    }
+}
+
+static void apply_pacemaker(const Params& p, Field& u, Field& w) {
+    if (!p.pacemaker) {
+        return;
+    }
+
+    const int cx = p.nx / 2;
+    const int cy = p.ny / 2;
+
+    if (p.wave_mode == Params::WaveMode::Outward || p.wave_mode == Params::WaveMode::Dual) {
+        apply_source_patch(u, w, cx, cy, p.pacemaker_radius, 1.1, 0.9);
+    }
+
+    if (p.wave_mode == Params::WaveMode::Inward || p.wave_mode == Params::WaveMode::Dual) {
+        const int ex = p.nx / 2;
+        const int ey = p.ny / 12;
+        apply_source_patch(u, w, ex, ey, p.pacemaker_radius, 1.05, 0.85);
+        apply_source_patch(u, w, p.nx - ex, ey, p.pacemaker_radius, 1.05, 0.85);
+        apply_source_patch(u, w, ex, p.ny - ey, p.pacemaker_radius, 1.05, 0.85);
+        apply_source_patch(u, w, p.nx - ex, p.ny - ey, p.pacemaker_radius, 1.05, 0.85);
+    }
+}
+
         }
     }
 }
@@ -286,6 +408,10 @@ int main(int argc, char** argv) {
 
     Field u(p.nx, p.ny, 0.0), v(p.nx, p.ny, 0.0), w(p.nx, p.ny, 0.0);
     Field u_next(p.nx, p.ny, 0.0), v_next(p.nx, p.ny, 0.0), w_next(p.nx, p.ny, 0.0);
+    Field visual(p.nx, p.ny, 0.0);
+
+    std::mt19937 rng(7);
+    std::uniform_real_distribution<double> noise(-4e-4, 4e-4);
 
     std::mt19937 rng(7);
     std::uniform_real_distribution<double> noise(-2e-4, 2e-4);
@@ -298,6 +424,8 @@ int main(int argc, char** argv) {
         }
     }
 
+    // Initial trigger
+    apply_source_patch(u, w, p.nx / 2, p.ny / 2, std::max(8, p.nx / 28), 1.0, 0.85);
     int cx = p.nx / 3;
     int cy = p.ny / 2;
     int radius = std::max(8, p.nx / 25);
@@ -326,6 +454,7 @@ int main(int argc, char** argv) {
 
     int frame_id = 0;
     if (p.save_frames) {
+        build_visual_field(p, u, w, visual);
         Field visual(p.nx, p.ny, 0.0);
         for (int j = 0; j < p.ny; ++j) {
             for (int i = 0; i < p.nx; ++i) {
@@ -340,6 +469,17 @@ int main(int argc, char** argv) {
     for (int step = 1; step <= p.steps; ++step) {
         for (int j = 0; j < p.ny; ++j) {
             for (int i = 0; i < p.nx; ++i) {
+                const double uu = u(i, j);
+                const double vv = v(i, j);
+                const double ww = w(i, j);
+
+                const double reaction_u = (uu * (1.0 - uu) - p.f * vv * ((uu - p.q) / (uu + p.q))) / p.epsilon;
+                const double reaction_v = uu - vv;
+                const double reaction_w = p.phi * (uu - ww);
+
+                const double du = reaction_u + p.Du * laplacian(u, i, j, p.dx);
+                const double dv = reaction_v + p.Dv * laplacian(v, i, j, p.dx);
+                const double dw = reaction_w + p.Dw * laplacian(w, i, j, p.dx);
                 double uu = u(i, j);
                 double vv = v(i, j);
                 double ww = w(i, j);
@@ -363,6 +503,7 @@ int main(int argc, char** argv) {
         std::swap(w.data, w_next.data);
 
         if (p.pacemaker && step % p.pacemaker_period == 0) {
+            apply_pacemaker(p, u, w);
             const int px = p.nx / 4;
             const int py = p.ny / 2;
             for (int j = 0; j < p.ny; ++j) {
@@ -382,6 +523,9 @@ int main(int argc, char** argv) {
                 std::cout << "窗口关闭，模拟提前结束。\n";
                 break;
             }
+
+            build_visual_field(p, u, w, visual);
+            renderer->draw_visual(visual, step);
             renderer->draw_field(u, w, step);
 
             auto now = std::chrono::steady_clock::now();
@@ -393,6 +537,7 @@ int main(int argc, char** argv) {
         }
 
         if (p.save_frames && step % p.frame_every == 0) {
+            build_visual_field(p, u, w, visual);
             Field visual(p.nx, p.ny, 0.0);
             for (int j = 0; j < p.ny; ++j) {
                 for (int i = 0; i < p.nx; ++i) {
