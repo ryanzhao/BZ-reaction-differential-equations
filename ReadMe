@@ -1,1 +1,24 @@
+# BZ Reaction Differential Equations
 
+This repository now includes:
+
+- `BZ_simulation_design.md`: mathematical design notes for Oregonator ODE/PDE modeling.
+- `src/bz_simulation.cpp`: a starter C++ reaction–diffusion simulator that writes PPM frames.
+
+## Build
+
+```bash
+g++ -std=c++17 -O2 -o bz_sim src/bz_simulation.cpp
+```
+
+## Run
+
+```bash
+./bz_sim
+```
+
+The simulation writes `frame_XXXXX.ppm` images. Convert to video:
+
+```bash
+ffmpeg -framerate 20 -i frame_%05d.ppm -pix_fmt yuv420p bz.mp4
+```
