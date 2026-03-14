@@ -7,6 +7,10 @@
   - **实时窗口动画（X11）**
   - **可选保存帧为 PPM**（用于合成视频）
   - **培养皿风格渲染 + 螺旋外扩波纹**
+- `docs/bz_model_and_simulation.md`：从 ODE 到 PDE（反应-扩散）的数学建模说明。
+- `src/main.cpp`：Oregonator 风格 2D 模拟器，支持：
+  - **实时窗口动画（X11）**
+  - **可选保存帧为 PPM**（用于合成视频）
 
 ## 1) 编译
 
@@ -24,6 +28,7 @@ g++ -std=c++17 -O2 -o bz_sim src/main.cpp -lX11
 
 ```bash
 ./bz_sim --save --headless --steps=22000 --wave-mode=spiral --view=mix --pacemaker-period=240 --layers=4 --ring-spacing=12
+./bz_sim --save --headless --steps=18000 --wave-mode=spiral --view=mix
 ffmpeg -framerate 30 -i output/frame_%06d.ppm -pix_fmt yuv420p bz.mp4
 ```
 
@@ -33,6 +38,7 @@ ffmpeg -framerate 30 -i output/frame_%06d.ppm -pix_fmt yuv420p bz.mp4
 
 ```bash
 ./bz_sim --view=mix --wave-mode=spiral --pacemaker-period=240 --layers=4 --ring-spacing=12 --save --headless --steps=24000
+./bz_sim --view=mix --wave-mode=spiral --pacemaker-period=140 --save --headless --steps=20000
 ```
 
 ### B. 靶心波（中心反复外扩）
@@ -45,12 +51,36 @@ ffmpeg -framerate 30 -i output/frame_%06d.ppm -pix_fmt yuv420p bz.mp4
 
 ```bash
 ./bz_sim --view=mix --wave-mode=dual --pacemaker-period=260 --save --headless --steps=18000
+./bz_sim --view=mix --wave-mode=dual --pacemaker-period=150 --save --headless --steps=18000
+./bz_sim --save --headless --steps=16000
+ffmpeg -framerate 30 -i output/frame_%06d.ppm -pix_fmt yuv420p bz.mp4
+```
+
+## 4) 更接近实验波纹的推荐命令
+
+### A. 中心向外反复扩散（target waves）
+
+```bash
+./bz_sim --view=mix --wave-mode=outward --pacemaker-period=160 --save --headless --steps=16000
+```
+
+### B. 外向内 + 中心向外同时出现（双向演化）
+
+```bash
+./bz_sim --view=mix --wave-mode=dual --pacemaker-period=150 --save --headless --steps=18000
+```
+
+### C. 只看慢变量（颜色更像氧化还原）
+
+```bash
+./bz_sim --view=w --wave-mode=outward --pacemaker-period=180 --save --headless --steps=16000
 ```
 
 ## 5) 常用参数
 
 - `--steps=50000` 设置步数
 - `--dt=0.0022` 设置时间步长
+- `--dt=0.0032` 设置时间步长
 - `--nx=320 --ny=320` 设置网格
 - `--scale=2` 设置窗口像素放大倍数
 - `--view=u|w|mix` 选择显示字段（默认 `mix`）
@@ -60,131 +90,78 @@ ffmpeg -framerate 30 -i output/frame_%06d.ppm -pix_fmt yuv420p bz.mp4
 - `--contrast=auto|fixed` 自动对比度增强（默认 `auto`，波纹更清楚）
 - `--layers=4` 每次起搏同时生成多层环形波前
 - `--ring-spacing=12` 多层环之间的间距
+- `--pacemaker-period=150` 设置周期激发间隔（越小波纹出现越频繁）
+- `--no-pacemaker` 关闭周期激发源
+- `--contrast=auto|fixed` 自动对比度增强（默认 `auto`，波纹更清楚）
+- `--dt=0.0035` 设置时间步长
+- `--nx=260 --ny=260` 设置网格
+- `--scale=3` 设置窗口像素放大倍数
+- `--view=u|w|mix` 选择显示字段（默认 `mix`）
+- `--wave-mode=outward|inward|dual` 选择激发方向模式
+- `--pacemaker-period=180` 设置周期激发间隔（越小波纹出现越频繁）
+- `--no-pacemaker` 关闭周期激发源
+- `--contrast=auto|fixed` 自动对比度增强（默认 `auto`，波纹更清楚）
+# BZ Reaction Differential Equations
 
-## 6) WSL 更新后编译报 `redeclaration` 的快速修复
+This repository now includes:
 
-如果你 `git pull` 之后，`g++` 提示大量 `redeclaration of Params::...`，说明 `src/main.cpp` 在你的本地被错误拼接/冲突残留。
+- `BZ_simulation_design.md`: mathematical design notes for Oregonator ODE/PDE modeling.
+- `src/bz_simulation.cpp`: a starter C++ reaction–diffusion simulator that writes PPM frames.
 
-按下面顺序在 WSL 执行：
+## Build
 
 ```bash
-cd ~/BZ-reaction-differential-equations
+g++ -std=c++17 -O2 -o bz_sim src/bz_simulation.cpp
+```
 
-# 1) 备份你当前文件（防止丢失）
-cp src/main.cpp src/main.cpp.bak.$(date +%Y%m%d_%H%M%S)
+## Run
 
-# 2) 丢弃本地 main.cpp，恢复为远端 main 的干净版本
-git fetch origin
-git checkout origin/main -- src/main.cpp
+```bash
+./bz_sim
+```
 
-# 3) 编译
-g++ -std=c++17 -O2 -o bz_sim src/main.cpp -lX11
+说明：
+- 会弹出窗口，显示 BZ 波纹颜色变化（红=还原态，蓝=氧化态）。
+- 按任意键或关闭窗口可提前结束。
 
-# 4) 重新生成视频
-rm -rf output bz.mp4
-./bz_sim --headless --save --steps=24000 --wave-mode=spiral --view=mix --pacemaker-period=240 --layers=4 --ring-spacing=12
+## 3) 无界面运行（例如服务器）
+
+```bash
+./bz_sim --headless
+```
+
+## 4) 保存帧并合成视频
+
+```bash
+./bz_sim --save --headless
 ffmpeg -framerate 30 -i output/frame_%06d.ppm -pix_fmt yuv420p bz.mp4
 ```
 
-如果你想本地分支和远端完全一致（会丢弃未提交改动）：
+## 5) 如果你看到“中心蓝点不动”
+
+可以用下面这个命令，开启默认 pacemaker 的同时，把可视化改成 `u+w` 混合前沿（更容易看到波在传播）：
 
 ```bash
-git fetch origin
-git reset --hard origin/main
-git clean -fd
+./bz_sim --view=mix --save --headless --steps=12000
 ```
 
-
-## 7) 运行时报 `./bz_sim: No such file or directory` 怎么办
-
-这个错误表示**可执行文件还没生成**（或你不在项目目录）。
-
-按下面顺序执行：
+如果你想只看慢变量（颜色更像“红氧化态”），可以改成：
 
 ```bash
-cd ~/BZ-reaction-differential-equations
-pwd
-ls -la src/main.cpp
-
-# 先编译，生成 bz_sim
-g++ -std=c++17 -O2 -o bz_sim src/main.cpp -lX11
-
-# 确认文件存在
-ls -la bz_sim
-
-# 再运行生成帧
-rm -rf output bz.mp4
-./bz_sim --headless --save --steps=24000 --wave-mode=spiral --view=mix --pacemaker-period=240 --layers=4 --ring-spacing=12
-
-# 最后合成视频
-ffmpeg -framerate 30 -i output/frame_%06d.ppm -pix_fmt yuv420p bz.mp4
+./bz_sim --view=w
 ```
 
-如果编译阶段报错，就先不要执行 `./bz_sim` 和 `ffmpeg`，把编译报错贴出来再处理。
+## 常用参数
 
-
-## 8) 反复出现 `redeclaration` 的一键彻底恢复（推荐）
-
-如果你已经按第 6/7 步做过，但 `src/main.cpp` 还是反复报 `redeclaration`，最稳办法是把本地仓库**完整重置到远端 main**：
-
-```bash
-cd ~/BZ-reaction-differential-equations
-
-# 可选：先备份你当前 main.cpp
-cp src/main.cpp src/main.cpp.bad.$(date +%Y%m%d_%H%M%S)
-
-# 彻底同步到 GitHub 远端 main（会删除本地未提交改动）
-git fetch origin
-git reset --hard origin/main
-git clean -fd
-
-# 再确认 main.cpp 只出现一个 Params 定义（应只输出 1）
-rg "^struct Params" -n src/main.cpp
-
-# 重新编译 + 生成视频
-g++ -std=c++17 -O2 -o bz_sim src/main.cpp -lX11
-rm -rf output bz.mp4
-./bz_sim --headless --save --steps=24000 --wave-mode=spiral --view=mix --pacemaker-period=240 --layers=4 --ring-spacing=12
-ffmpeg -framerate 30 -i output/frame_%06d.ppm -pix_fmt yuv420p bz.mp4
-```
-
-> 重点：必须先让 `g++` 编译成功，后面的 `./bz_sim` 和 `ffmpeg` 才会有输出。
-
-
-## 9) 远端 `main` 本身损坏时的恢复（你现在就是这个情况）
-
-如果你已经 `git reset --hard origin/main`，但 `src/main.cpp` 仍然大量 `redeclaration`，说明**远端 main 当前提交本身有问题**。
-
-此时不要继续在 `origin/main` 上编译，直接切到已知可编译的提交：
+- `--steps=50000` 设置步数
+- `--dt=0.004` 设置时间步长
+- `--nx=240 --ny=240` 设置网格
+- `--scale=3` 设置窗口像素放大倍数
+- `--view=u|w|mix` 选择显示字段（默认 `mix`）
+- `--no-pacemaker` 关闭周期激发源
+- `--pacemaker-period=320` 设置周期激发间隔
+The simulation writes `frame_XXXXX.ppm` images. Convert to video:
 
 ```bash
-cd ~/BZ-reaction-differential-equations
-
-# 拉取所有远端分支
-git fetch --all
-
-# 查看可用分支
-git branch -a
-
-# 切到历史上可编译的稳定提交（按当前仓库记录）
-git checkout 6c5f9da
-
-# 建一个你自己的修复分支（避免 detached HEAD）
-git switch -c local/fix-bz-build
-
-# 没有 rg 也能检查（grep 是系统自带）
-grep -n "^struct Params" src/main.cpp
-
-# 编译并生成视频
-g++ -std=c++17 -O2 -o bz_sim src/main.cpp -lX11
-rm -rf output bz.mp4
-./bz_sim --headless --save --steps=24000 --wave-mode=spiral --view=mix --pacemaker-period=240 --layers=4 --ring-spacing=12
-ffmpeg -framerate 30 -i output/frame_%06d.ppm -pix_fmt yuv420p bz.mp4
-```
-
-如果你希望回到最新 main，先等仓库维护者修复 `origin/main` 后再：
-
-```bash
-git switch main
-git pull --ff-only origin main
+ffmpeg -framerate 20 -i frame_%05d.ppm -pix_fmt yuv420p bz.mp4
 ```
