@@ -121,3 +121,31 @@ ffmpeg -framerate 30 -i output/frame_%06d.ppm -pix_fmt yuv420p bz.mp4
 ```
 
 如果编译阶段报错，就先不要执行 `./bz_sim` 和 `ffmpeg`，把编译报错贴出来再处理。
+
+
+## 8) 反复出现 `redeclaration` 的一键彻底恢复（推荐）
+
+如果你已经按第 6/7 步做过，但 `src/main.cpp` 还是反复报 `redeclaration`，最稳办法是把本地仓库**完整重置到远端 main**：
+
+```bash
+cd ~/BZ-reaction-differential-equations
+
+# 可选：先备份你当前 main.cpp
+cp src/main.cpp src/main.cpp.bad.$(date +%Y%m%d_%H%M%S)
+
+# 彻底同步到 GitHub 远端 main（会删除本地未提交改动）
+git fetch origin
+git reset --hard origin/main
+git clean -fd
+
+# 再确认 main.cpp 只出现一个 Params 定义（应只输出 1）
+rg "^struct Params" -n src/main.cpp
+
+# 重新编译 + 生成视频
+g++ -std=c++17 -O2 -o bz_sim src/main.cpp -lX11
+rm -rf output bz.mp4
+./bz_sim --headless --save --steps=24000 --wave-mode=spiral --view=mix --pacemaker-period=240 --layers=4 --ring-spacing=12
+ffmpeg -framerate 30 -i output/frame_%06d.ppm -pix_fmt yuv420p bz.mp4
+```
+
+> 重点：必须先让 `g++` 编译成功，后面的 `./bz_sim` 和 `ffmpeg` 才会有输出。
