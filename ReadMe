@@ -27,6 +27,7 @@ g++ -std=c++17 -O2 -o bz_sim src/main.cpp -lX11
 ## 3) 无界面生成视频
 
 ```bash
+./bz_sim --save --headless --steps=22000 --wave-mode=spiral --view=mix --pacemaker-period=240 --layers=4 --ring-spacing=12
 ./bz_sim --save --headless --steps=18000 --wave-mode=spiral --view=mix
 ffmpeg -framerate 30 -i output/frame_%06d.ppm -pix_fmt yuv420p bz.mp4
 ```
@@ -36,6 +37,7 @@ ffmpeg -framerate 30 -i output/frame_%06d.ppm -pix_fmt yuv420p bz.mp4
 ### A. 螺旋向外扩散（默认推荐）
 
 ```bash
+./bz_sim --view=mix --wave-mode=spiral --pacemaker-period=240 --layers=4 --ring-spacing=12 --save --headless --steps=24000
 ./bz_sim --view=mix --wave-mode=spiral --pacemaker-period=140 --save --headless --steps=20000
 ```
 
@@ -48,6 +50,7 @@ ffmpeg -framerate 30 -i output/frame_%06d.ppm -pix_fmt yuv420p bz.mp4
 ### C. 外向内 + 中心向外同时出现（双向演化）
 
 ```bash
+./bz_sim --view=mix --wave-mode=dual --pacemaker-period=260 --save --headless --steps=18000
 ./bz_sim --view=mix --wave-mode=dual --pacemaker-period=150 --save --headless --steps=18000
 ./bz_sim --save --headless --steps=16000
 ffmpeg -framerate 30 -i output/frame_%06d.ppm -pix_fmt yuv420p bz.mp4
@@ -76,11 +79,17 @@ ffmpeg -framerate 30 -i output/frame_%06d.ppm -pix_fmt yuv420p bz.mp4
 ## 5) 常用参数
 
 - `--steps=50000` 设置步数
+- `--dt=0.0022` 设置时间步长
 - `--dt=0.0032` 设置时间步长
 - `--nx=320 --ny=320` 设置网格
 - `--scale=2` 设置窗口像素放大倍数
 - `--view=u|w|mix` 选择显示字段（默认 `mix`）
 - `--wave-mode=outward|inward|dual|spiral` 选择波纹模式
+- `--pacemaker-period=260` 设置周期激发间隔（越小波纹出现越频繁）
+- `--no-pacemaker` 关闭周期激发源
+- `--contrast=auto|fixed` 自动对比度增强（默认 `auto`，波纹更清楚）
+- `--layers=4` 每次起搏同时生成多层环形波前
+- `--ring-spacing=12` 多层环之间的间距
 - `--pacemaker-period=150` 设置周期激发间隔（越小波纹出现越频繁）
 - `--no-pacemaker` 关闭周期激发源
 - `--contrast=auto|fixed` 自动对比度增强（默认 `auto`，波纹更清楚）
