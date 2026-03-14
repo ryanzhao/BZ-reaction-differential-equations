@@ -90,6 +90,177 @@ ffmpeg -framerate 30 -i output/frame_%06d.ppm -pix_fmt yuv420p bz.mp4
 - `--contrast=auto|fixed` 自动对比度增强（默认 `auto`，波纹更清楚）
 - `--layers=4` 每次起搏同时生成多层环形波前
 - `--ring-spacing=12` 多层环之间的间距
+
+## 6) WSL 更新后编译报 `redeclaration` 的快速修复
+
+如果你 `git pull` 之后，`g++` 提示大量 `redeclaration of Params::...`，说明 `src/main.cpp` 在你的本地被错误拼接/冲突残留。
+
+按下面顺序在 WSL 执行：
+
+```bash
+cd ~/BZ-reaction-differential-equations
+
+# 1) 备份你当前文件（防止丢失）
+cp src/main.cpp src/main.cpp.bak.$(date +%Y%m%d_%H%M%S)
+
+# 2) 丢弃本地 main.cpp，恢复为远端 main 的干净版本
+git fetch origin
+git checkout origin/main -- src/main.cpp
+
+# 3) 编译
+g++ -std=c++17 -O2 -o bz_sim src/main.cpp -lX11
+
+# 4) 重新生成视频
+rm -rf output bz.mp4
+./bz_sim --headless --save --steps=24000 --wave-mode=spiral --view=mix --pacemaker-period=240 --layers=4 --ring-spacing=12
+ffmpeg -framerate 30 -i output/frame_%06d.ppm -pix_fmt yuv420p bz.mp4
+```
+
+如果你想本地分支和远端完全一致（会丢弃未提交改动）：
+
+```bash
+git fetch origin
+git reset --hard origin/main
+git clean -fd
+```
+
+
+## 7) 运行时报 `./bz_sim: No such file or directory` 怎么办
+
+这个错误表示**可执行文件还没生成**（或你不在项目目录）。
+
+按下面顺序执行：
+
+```bash
+cd ~/BZ-reaction-differential-equations
+pwd
+ls -la src/main.cpp
+
+# 先编译，生成 bz_sim
+g++ -std=c++17 -O2 -o bz_sim src/main.cpp -lX11
+
+# 确认文件存在
+ls -la bz_sim
+
+# 再运行生成帧
+rm -rf output bz.mp4
+./bz_sim --headless --save --steps=24000 --wave-mode=spiral --view=mix --pacemaker-period=240 --layers=4 --ring-spacing=12
+
+# 最后合成视频
+ffmpeg -framerate 30 -i output/frame_%06d.ppm -pix_fmt yuv420p bz.mp4
+```
+
+如果编译阶段报错，就先不要执行 `./bz_sim` 和 `ffmpeg`，把编译报错贴出来再处理。
+
+
+## 8) 反复出现 `redeclaration` 的一键彻底恢复（推荐）
+
+如果你已经按第 6/7 步做过，但 `src/main.cpp` 还是反复报 `redeclaration`，最稳办法是把本地仓库**完整重置到远端 main**：
+
+```bash
+cd ~/BZ-reaction-differential-equations
+
+# 可选：先备份你当前 main.cpp
+cp src/main.cpp src/main.cpp.bad.$(date +%Y%m%d_%H%M%S)
+
+# 彻底同步到 GitHub 远端 main（会删除本地未提交改动）
+git fetch origin
+git reset --hard origin/main
+git clean -fd
+
+# 再确认 main.cpp 只出现一个 Params 定义（应只输出 1）
+rg "^struct Params" -n src/main.cpp
+
+# 重新编译 + 生成视频
+g++ -std=c++17 -O2 -o bz_sim src/main.cpp -lX11
+rm -rf output bz.mp4
+./bz_sim --headless --save --steps=24000 --wave-mode=spiral --view=mix --pacemaker-period=240 --layers=4 --ring-spacing=12
+ffmpeg -framerate 30 -i output/frame_%06d.ppm -pix_fmt yuv420p bz.mp4
+```
+
+> 重点：必须先让 `g++` 编译成功，后面的 `./bz_sim` 和 `ffmpeg` 才会有输出。
+
+
+## 9) 远端 `main` 本身损坏时的恢复（你现在就是这个情况）
+
+如果你已经 `git reset --hard origin/main`，但 `src/main.cpp` 仍然大量 `redeclaration`，说明**远端 main 当前提交本身有问题**。
+
+此时不要继续在 `origin/main` 上编译，直接切到已知可编译的提交：
+
+```bash
+cd ~/BZ-reaction-differential-equations
+
+# 拉取所有远端分支
+git fetch --all
+
+# 查看可用分支
+git branch -a
+
+# 切到历史上可编译的稳定提交（按当前仓库记录）
+git checkout 6c5f9da
+
+# 建一个你自己的修复分支（避免 detached HEAD）
+git switch -c local/fix-bz-build
+
+# 没有 rg 也能检查（grep 是系统自带）
+grep -n "^struct Params" src/main.cpp
+
+# 编译并生成视频
+g++ -std=c++17 -O2 -o bz_sim src/main.cpp -lX11
+rm -rf output bz.mp4
+./bz_sim --headless --save --steps=24000 --wave-mode=spiral --view=mix --pacemaker-period=240 --layers=4 --ring-spacing=12
+ffmpeg -framerate 30 -i output/frame_%06d.ppm -pix_fmt yuv420p bz.mp4
+```
+
+如果你希望回到最新 main，先等仓库维护者修复 `origin/main` 后再：
+
+```bash
+git switch main
+git pull --ff-only origin main
+```
+
+## 10) 当提交哈希不存在时：自动找“可用代码版本”再编译
+
+你反馈的 `6c5f9da` 不存在，说明远端历史已经变化（可能被重写）。
+这时不要手动猜 commit，直接在本地自动扫描远端分支，找 `src/main.cpp` 里只有一个 `struct Params` 的候选分支：
+
+```bash
+cd ~/BZ-reaction-differential-equations
+
+# 同步远端
+ git fetch --all
+
+# 自动找候选远端分支（只保留含 src/main.cpp 且 Params 定义为 1 的分支）
+for b in $(git for-each-ref --format='%(refname:short)' refs/remotes/origin); do
+  n=$(git show "$b:src/main.cpp" 2>/dev/null | grep -c '^struct Params' || true)
+  if [ "$n" = "1" ]; then
+    echo "$b"
+  fi
+done
+```
+
+从输出里挑一个分支（示例用 `<GOOD_BRANCH>`），然后执行：
+
+```bash
+cd ~/BZ-reaction-differential-equations
+
+# 切到候选分支代码（覆盖当前工作区文件）
+git checkout <GOOD_BRANCH> -- src/main.cpp docs/bz_model_and_simulation.md ReadMe
+
+# 新建本地修复分支
+git switch -C local/recover-build
+
+# 编译
+ g++ -std=c++17 -O2 -o bz_sim src/main.cpp -lX11
+
+# 生成视频
+rm -rf output bz.mp4
+./bz_sim --headless --save --steps=24000 --wave-mode=spiral --view=mix --pacemaker-period=240 --layers=4 --ring-spacing=12
+ffmpeg -framerate 30 -i output/frame_%06d.ppm -pix_fmt yuv420p bz.mp4
+```
+
+如果上面第一段一个分支也没输出，说明远端所有分支都坏了：
+请在 GitHub 网页打开每个 `origin/codex/...` 分支的 `src/main.cpp`，找一个能正常显示完整代码的分支名，再把那个分支名发我，我给你下一步精确命令。
 - `--pacemaker-period=150` 设置周期激发间隔（越小波纹出现越频繁）
 - `--no-pacemaker` 关闭周期激发源
 - `--contrast=auto|fixed` 自动对比度增强（默认 `auto`，波纹更清楚）

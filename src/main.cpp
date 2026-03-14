@@ -26,6 +26,8 @@ struct Params {
     int nx = 320;
     int ny = 320;
     double dx = 1.0;
+    double dt = 0.0022;
+    int steps = 260000;
     double dt = 0.0032;
     int steps = 260000;
     int nx = 260;
@@ -40,6 +42,9 @@ struct Params {
     double q = 0.002;
     double phi = 0.075;
 
+    double Du = 0.55;
+    double Dv = 0.32;
+    double Dw = 0.10;
     double Du = 1.0;
     double Dv = 0.55;
     double Dw = 0.15;
@@ -65,6 +70,10 @@ struct Params {
     int pixel_scale = 2;
 
     bool pacemaker = true;
+    int pacemaker_period = 260;
+    int pacemaker_radius = 10;
+    int layered_rings = 3;
+    int ring_spacing = 12;
     int pacemaker_period = 150;
     int pixel_scale = 3;
 
@@ -429,6 +438,10 @@ static void parse_args(int argc, char** argv, Params& p) {
             p.pacemaker = false;
         } else if (a.rfind("--pacemaker-period=", 0) == 0) {
             p.pacemaker_period = std::max(20, std::stoi(a.substr(19)));
+        } else if (a.rfind("--layers=", 0) == 0) {
+            p.layered_rings = std::max(1, std::stoi(a.substr(9)));
+        } else if (a.rfind("--ring-spacing=", 0) == 0) {
+            p.ring_spacing = std::max(4, std::stoi(a.substr(15)));
         } else if (a.rfind("--view=", 0) == 0) {
             const std::string v = a.substr(7);
             if (v == "u") {
@@ -472,6 +485,33 @@ static void apply_source_patch(Field& u, Field& w, int cx, int cy, int radius, d
     }
 }
 
+static void apply_layered_source(Field& u, Field& w, int cx, int cy, int core_radius, int layers, int spacing,
+                                 double u_peak, double w_peak) {
+    const double sigma = 2.8;
+    for (int j = 0; j < u.ny; ++j) {
+        for (int i = 0; i < u.nx; ++i) {
+            const double dx = static_cast<double>(i - cx);
+            const double dy = static_cast<double>(j - cy);
+            const double r = std::sqrt(dx * dx + dy * dy);
+
+            double amp = 0.0;
+            if (r <= core_radius) {
+                amp = 1.0;
+            }
+            for (int k = 1; k <= layers; ++k) {
+                const double target = core_radius + k * spacing;
+                const double ring = std::exp(-((r - target) * (r - target)) / (2.0 * sigma * sigma));
+                amp = std::max(amp, ring);
+            }
+
+            if (amp > 0.12) {
+                u(i, j) = std::max(u(i, j), 0.10 + u_peak * amp);
+                w(i, j) = std::max(w(i, j), 0.08 + w_peak * amp);
+            }
+        }
+    }
+}
+
 static void seed_spiral_break(const Params& p, Field& u, Field& w) {
     const int cx = p.nx / 2;
     const int cy = p.ny / 2;
@@ -503,12 +543,24 @@ static void apply_pacemaker(const Params& p, Field& u, Field& w) {
     const int cy = p.ny / 2;
 
     if (p.wave_mode == Params::WaveMode::Outward || p.wave_mode == Params::WaveMode::Dual) {
+        apply_layered_source(u, w, cx, cy, p.pacemaker_radius, p.layered_rings, p.ring_spacing, 0.85, 0.72);
         apply_source_patch(u, w, cx, cy, p.pacemaker_radius, 1.1, 0.9);
     }
 
     if (p.wave_mode == Params::WaveMode::Inward || p.wave_mode == Params::WaveMode::Dual) {
         const int ex = p.nx / 2;
         const int ey = p.ny / 10;
+        apply_source_patch(u, w, ex, ey, p.pacemaker_radius, 0.95, 0.78);
+        apply_source_patch(u, w, p.nx - ex, ey, p.pacemaker_radius, 0.95, 0.78);
+        apply_source_patch(u, w, ex, p.ny - ey, p.pacemaker_radius, 0.95, 0.78);
+        apply_source_patch(u, w, p.nx - ex, p.ny - ey, p.pacemaker_radius, 0.95, 0.78);
+    }
+
+    if (p.wave_mode == Params::WaveMode::Spiral) {
+        apply_layered_source(u, w, p.nx / 3, p.ny / 2, p.pacemaker_radius, p.layered_rings, p.ring_spacing, 0.82,
+                             0.70);
+        apply_layered_source(u, w, 2 * p.nx / 3, p.ny / 2, p.pacemaker_radius, p.layered_rings, p.ring_spacing,
+                             0.82, 0.70);
         const int ey = p.ny / 12;
         apply_source_patch(u, w, ex, ey, p.pacemaker_radius, 1.05, 0.85);
         apply_source_patch(u, w, p.nx - ex, ey, p.pacemaker_radius, 1.05, 0.85);
@@ -552,6 +604,9 @@ int main(int argc, char** argv) {
         }
     }
 
+    apply_layered_source(u, w, p.nx / 2, p.ny / 2, std::max(10, p.nx / 26), p.layered_rings, p.ring_spacing, 0.9, 0.75);
+    if (p.wave_mode == Params::WaveMode::Spiral) {
+        seed_spiral_break(p, u, w);
     apply_source_patch(u, w, p.nx / 2, p.ny / 2, std::max(8, p.nx / 28), 1.0, 0.85);
     if (p.wave_mode == Params::WaveMode::Spiral) {
         seed_spiral_break(p, u, w);

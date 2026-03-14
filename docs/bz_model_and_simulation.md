@@ -201,3 +201,25 @@ excitability, refractory recovery, and self-organized wave patterns.
 6. Barkley, D. (1991). *A model for fast computer simulation of waves in excitable media*. Physica D.（可激发介质简化模型，螺旋波常用）
 
 > 建议按顺序阅读：FKN/Oregonator \(\rightarrow\) 反应扩散靶心波 \(\rightarrow\) 螺旋波几何与可激发介质通用理论。
+
+## 12) 让波“更慢、层数更多”的数学调参思路
+
+如果你希望图样从“点状快速喷发”变成“缓慢、多层并行波前”，在反应扩散模型中可按下面方式调整：
+
+1. **降低有效传播速度**
+   - 适当减小扩散系数（尤其激发变量扩散 \(D_u\)），
+   - 减小时间步长并增加总步数，让视频时间尺度更“慢”。
+
+2. **增强多层波前结构**
+   - 采用周期起搏（pacemaker），但每次起搏不是单点，而是“多层环形扰动”，
+   - 对应数学上可看作在源项 \(S(x,y,t)\) 中叠加多个不同半径的环形脉冲。
+
+3. **保持不应期**
+   - 不应期由抑制变量恢复速度控制，恢复太快会让波前挤在一起失真；
+   - 通过 \(\phi, f, q\) 的组合调节恢复窗口，可得到更稳定层状波纹。
+
+在数值上，这些都可写成：
+\[
+\partial_t u = F_u(u,v,w) + D_u\nabla^2u + S_u(x,y,t),
+\]
+其中 \(S_u\) 可以是中心多层环形起搏项，用于构造多圈同步外扩前沿。
