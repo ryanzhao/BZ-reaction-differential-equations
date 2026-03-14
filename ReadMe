@@ -7,6 +7,10 @@
   - **实时窗口动画（X11）**
   - **可选保存帧为 PPM**（用于合成视频）
   - **培养皿风格渲染 + 螺旋外扩波纹**
+- `docs/bz_model_and_simulation.md`：从 ODE 到 PDE（反应-扩散）的数学建模说明。
+- `src/main.cpp`：Oregonator 风格 2D 模拟器，支持：
+  - **实时窗口动画（X11）**
+  - **可选保存帧为 PPM**（用于合成视频）
 
 ## 1) 编译
 
@@ -24,6 +28,7 @@ g++ -std=c++17 -O2 -o bz_sim src/main.cpp -lX11
 
 ```bash
 ./bz_sim --save --headless --steps=22000 --wave-mode=spiral --view=mix --pacemaker-period=240 --layers=4 --ring-spacing=12
+./bz_sim --save --headless --steps=18000 --wave-mode=spiral --view=mix
 ffmpeg -framerate 30 -i output/frame_%06d.ppm -pix_fmt yuv420p bz.mp4
 ```
 
@@ -33,6 +38,7 @@ ffmpeg -framerate 30 -i output/frame_%06d.ppm -pix_fmt yuv420p bz.mp4
 
 ```bash
 ./bz_sim --view=mix --wave-mode=spiral --pacemaker-period=240 --layers=4 --ring-spacing=12 --save --headless --steps=24000
+./bz_sim --view=mix --wave-mode=spiral --pacemaker-period=140 --save --headless --steps=20000
 ```
 
 ### B. 靶心波（中心反复外扩）
@@ -45,6 +51,29 @@ ffmpeg -framerate 30 -i output/frame_%06d.ppm -pix_fmt yuv420p bz.mp4
 
 ```bash
 ./bz_sim --view=mix --wave-mode=dual --pacemaker-period=260 --save --headless --steps=18000
+./bz_sim --view=mix --wave-mode=dual --pacemaker-period=150 --save --headless --steps=18000
+./bz_sim --save --headless --steps=16000
+ffmpeg -framerate 30 -i output/frame_%06d.ppm -pix_fmt yuv420p bz.mp4
+```
+
+## 4) 更接近实验波纹的推荐命令
+
+### A. 中心向外反复扩散（target waves）
+
+```bash
+./bz_sim --view=mix --wave-mode=outward --pacemaker-period=160 --save --headless --steps=16000
+```
+
+### B. 外向内 + 中心向外同时出现（双向演化）
+
+```bash
+./bz_sim --view=mix --wave-mode=dual --pacemaker-period=150 --save --headless --steps=18000
+```
+
+### C. 只看慢变量（颜色更像氧化还原）
+
+```bash
+./bz_sim --view=w --wave-mode=outward --pacemaker-period=180 --save --headless --steps=16000
 ```
 
 ## 5) 常用参数
