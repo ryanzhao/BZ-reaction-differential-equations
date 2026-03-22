@@ -1,1 +1,297 @@
+# BZ 反应微分方程模拟（C++，可弹窗动画）
 
+现在仓库包含：
+
+- `docs/bz_model_and_simulation.md`：从 ODE 到 PDE、以及螺旋波数学描述与论文索引。
+- `src/main.cpp`：Oregonator 风格 2D 模拟器，支持：
+  - **实时窗口动画（X11）**
+  - **可选保存帧为 PPM**（用于合成视频）
+  - **培养皿风格渲染 + 螺旋外扩波纹**
+
+## 1) 编译
+
+```bash
+g++ -std=c++17 -O2 -o bz_sim src/main.cpp -lX11
+```
+
+## 2) 运行（弹窗动画）
+
+```bash
+./bz_sim
+```
+
+## 3) 无界面生成视频
+
+```bash
+./bz_sim --save --headless --steps=22000 --wave-mode=spiral --view=mix --pacemaker-period=240 --layers=4 --ring-spacing=12
+ffmpeg -framerate 30 -i output/frame_%06d.ppm -pix_fmt yuv420p bz.mp4
+```
+
+## 4) 推荐命令（接近实验中的螺旋演化）
+
+### A. 螺旋向外扩散（默认推荐）
+
+```bash
+./bz_sim --view=mix --wave-mode=spiral --pacemaker-period=220 --layers=4 --ring-spacing=12 --orbit=0.10 --omega=0.012 --heterogeneity=0.12 --temporal-mod=0.04 --wavebreak-period=800 --save --headless --steps=26000
+```
+
+### B. 靶心波（中心反复外扩）
+
+```bash
+./bz_sim --view=mix --wave-mode=outward --pacemaker-period=160 --save --headless --steps=16000
+```
+
+### C. 外向内 + 中心向外同时出现（双向演化）
+
+```bash
+./bz_sim --view=mix --wave-mode=dual --pacemaker-period=260 --inward-width=18 --save --headless --steps=18000
+```
+
+## 5) 常用参数
+
+- `--steps=50000` 设置步数
+- `--dt=0.0022` 设置时间步长
+- `--nx=320 --ny=320` 设置网格
+- `--scale=2` 设置窗口像素放大倍数
+- `--view=u|w|mix` 选择显示字段（默认 `mix`）
+- `--wave-mode=outward|inward|dual|spiral` 选择波纹模式
+- `--pacemaker-period=260` 设置周期激发间隔（越小波纹出现越频繁）
+- `--no-pacemaker` 关闭周期激发源
+- `--contrast=auto|fixed` 自动对比度增强（默认 `auto`，波纹更清楚）
+- `--layers=4` 每次起搏同时生成多层环形波前
+- `--ring-spacing=12` 多层环之间的间距
+- `--orbit=0.20` 螺旋模式下起搏中心环绕半径（0~0.45，越大越不单调）
+- `--omega=0.014` 螺旋模式下环绕角速度（越大图样变化越快）
+- `--wavebreak-period=900` 周期性制造微小波前断裂，触发螺旋/花瓣形演化
+- `--inward-width=18` inward/dual 模式边界入射环带宽度
+- `--heterogeneity=0.10` 介质空间异质性强度（增加“不是重复同一圈”的演化感）
+- `--temporal-mod=0.04` 慢时间调制强度（让波速/恢复节律缓慢变化）
+
+## 6) WSL 更新后编译报 `redeclaration` 的快速修复
+
+如果你 `git pull` 之后，`g++` 提示大量 `redeclaration of Params::...`，说明 `src/main.cpp` 在你的本地被错误拼接/冲突残留。
+
+按下面顺序在 WSL 执行：
+
+```bash
+cd ~/BZ-reaction-differential-equations
+
+# 1) 备份你当前文件（防止丢失）
+cp src/main.cpp src/main.cpp.bak.$(date +%Y%m%d_%H%M%S)
+
+# 2) 丢弃本地 main.cpp，恢复为远端 main 的干净版本
+git fetch origin
+git checkout origin/main -- src/main.cpp
+
+# 3) 编译
+g++ -std=c++17 -O2 -o bz_sim src/main.cpp -lX11
+
+# 4) 重新生成视频
+rm -rf output bz.mp4
+./bz_sim --headless --save --steps=24000 --wave-mode=spiral --view=mix --pacemaker-period=240 --layers=4 --ring-spacing=12
+ffmpeg -framerate 30 -i output/frame_%06d.ppm -pix_fmt yuv420p bz.mp4
+```
+
+如果你想本地分支和远端完全一致（会丢弃未提交改动）：
+
+```bash
+git fetch origin
+git reset --hard origin/main
+git clean -fd
+```
+
+
+## 7) 运行时报 `./bz_sim: No such file or directory` 怎么办
+
+这个错误表示**可执行文件还没生成**（或你不在项目目录）。
+
+按下面顺序执行：
+
+```bash
+cd ~/BZ-reaction-differential-equations
+pwd
+ls -la src/main.cpp
+
+# 先编译，生成 bz_sim
+g++ -std=c++17 -O2 -o bz_sim src/main.cpp -lX11
+
+# 确认文件存在
+ls -la bz_sim
+
+# 再运行生成帧
+rm -rf output bz.mp4
+./bz_sim --headless --save --steps=24000 --wave-mode=spiral --view=mix --pacemaker-period=240 --layers=4 --ring-spacing=12
+
+# 最后合成视频
+ffmpeg -framerate 30 -i output/frame_%06d.ppm -pix_fmt yuv420p bz.mp4
+```
+
+如果编译阶段报错，就先不要执行 `./bz_sim` 和 `ffmpeg`，把编译报错贴出来再处理。
+
+
+## 8) 反复出现 `redeclaration` 的一键彻底恢复（推荐）
+
+如果你已经按第 6/7 步做过，但 `src/main.cpp` 还是反复报 `redeclaration`，最稳办法是把本地仓库**完整重置到远端 main**：
+
+```bash
+cd ~/BZ-reaction-differential-equations
+
+# 可选：先备份你当前 main.cpp
+cp src/main.cpp src/main.cpp.bad.$(date +%Y%m%d_%H%M%S)
+
+# 彻底同步到 GitHub 远端 main（会删除本地未提交改动）
+git fetch origin
+git reset --hard origin/main
+git clean -fd
+
+# 再确认 main.cpp 只出现一个 Params 定义（应只输出 1）
+rg "^struct Params" -n src/main.cpp
+
+# 重新编译 + 生成视频
+g++ -std=c++17 -O2 -o bz_sim src/main.cpp -lX11
+rm -rf output bz.mp4
+./bz_sim --headless --save --steps=24000 --wave-mode=spiral --view=mix --pacemaker-period=240 --layers=4 --ring-spacing=12
+ffmpeg -framerate 30 -i output/frame_%06d.ppm -pix_fmt yuv420p bz.mp4
+```
+
+> 重点：必须先让 `g++` 编译成功，后面的 `./bz_sim` 和 `ffmpeg` 才会有输出。
+
+
+## 9) 远端 `main` 本身损坏时的恢复（你现在就是这个情况）
+
+如果你已经 `git reset --hard origin/main`，但 `src/main.cpp` 仍然大量 `redeclaration`，说明**远端 main 当前提交本身有问题**。
+
+此时不要继续在 `origin/main` 上编译，直接切到已知可编译的提交：
+
+```bash
+cd ~/BZ-reaction-differential-equations
+
+# 拉取所有远端分支
+git fetch --all
+
+# 查看可用分支
+git branch -a
+
+# 切到历史上可编译的稳定提交（按当前仓库记录）
+git checkout 6c5f9da
+
+# 建一个你自己的修复分支（避免 detached HEAD）
+git switch -c local/fix-bz-build
+
+# 没有 rg 也能检查（grep 是系统自带）
+grep -n "^struct Params" src/main.cpp
+
+# 编译并生成视频
+g++ -std=c++17 -O2 -o bz_sim src/main.cpp -lX11
+rm -rf output bz.mp4
+./bz_sim --headless --save --steps=24000 --wave-mode=spiral --view=mix --pacemaker-period=240 --layers=4 --ring-spacing=12
+ffmpeg -framerate 30 -i output/frame_%06d.ppm -pix_fmt yuv420p bz.mp4
+```
+
+如果你希望回到最新 main，先等仓库维护者修复 `origin/main` 后再：
+
+```bash
+git switch main
+git pull --ff-only origin main
+```
+
+## 10) 当提交哈希不存在时：自动找“可用代码版本”再编译
+
+你反馈的 `6c5f9da` 不存在，说明远端历史已经变化（可能被重写）。
+这时不要手动猜 commit，直接在本地自动扫描远端分支，找 `src/main.cpp` 里只有一个 `struct Params` 的候选分支：
+
+```bash
+cd ~/BZ-reaction-differential-equations
+
+# 同步远端
+ git fetch --all
+
+# 自动找候选远端分支（只保留含 src/main.cpp 且 Params 定义为 1 的分支）
+for b in $(git for-each-ref --format='%(refname:short)' refs/remotes/origin); do
+  n=$(git show "$b:src/main.cpp" 2>/dev/null | grep -c '^struct Params' || true)
+  if [ "$n" = "1" ]; then
+    echo "$b"
+  fi
+done
+```
+
+从输出里挑一个分支（示例用 `<GOOD_BRANCH>`），然后执行：
+
+```bash
+cd ~/BZ-reaction-differential-equations
+
+# 切到候选分支代码（覆盖当前工作区文件）
+git checkout <GOOD_BRANCH> -- src/main.cpp docs/bz_model_and_simulation.md ReadMe
+
+# 新建本地修复分支
+git switch -C local/recover-build
+
+# 编译
+ g++ -std=c++17 -O2 -o bz_sim src/main.cpp -lX11
+
+# 生成视频
+rm -rf output bz.mp4
+./bz_sim --headless --save --steps=24000 --wave-mode=spiral --view=mix --pacemaker-period=240 --layers=4 --ring-spacing=12
+ffmpeg -framerate 30 -i output/frame_%06d.ppm -pix_fmt yuv420p bz.mp4
+```
+
+如果上面第一段一个分支也没输出，说明远端所有分支都坏了：
+请在 GitHub 网页打开每个 `origin/codex/...` 分支的 `src/main.cpp`，找一个能正常显示完整代码的分支名，再把那个分支名发我，我给你下一步精确命令。
+
+## 11) 最稳方案：自动“逐分支编译”找可用版本（不再只看 `struct Params`）
+
+你这次输出里所有分支都被打印出来，说明“只统计 `struct Params` 行数”会误判（坏文件也可能只有 1 行 `struct Params` 开头）。
+
+请改用下面这段：它会**逐个远端分支实际编译 `src/main.cpp`**，只要能编译通过才算可用。
+
+```bash
+cd ~/BZ-reaction-differential-equations
+git fetch --all
+
+# 依次尝试每个 origin/* 分支，找到第一个可编译分支
+GOOD_BRANCH=""
+for b in $(git for-each-ref --format='%(refname:short)' refs/remotes/origin); do
+  # 跳过 origin/HEAD 这种符号引用
+  if [ "$b" = "origin/HEAD" ]; then
+    continue
+  fi
+
+  # 如果该分支没有 src/main.cpp 就跳过
+  git show "$b:src/main.cpp" >/dev/null 2>&1 || continue
+
+  # 用临时 worktree 测试编译
+  tmpdir=$(mktemp -d)
+  git worktree add --detach "$tmpdir" "$b" >/dev/null 2>&1 || { rm -rf "$tmpdir"; continue; }
+
+  if g++ -std=c++17 -O2 -o "$tmpdir/bz_sim" "$tmpdir/src/main.cpp" -lX11 >/dev/null 2>&1; then
+    GOOD_BRANCH="$b"
+    git worktree remove --force "$tmpdir" >/dev/null 2>&1
+    break
+  fi
+
+  git worktree remove --force "$tmpdir" >/dev/null 2>&1
+  rm -rf "$tmpdir"
+done
+
+echo "GOOD_BRANCH=$GOOD_BRANCH"
+```
+
+若最后输出了 `GOOD_BRANCH=origin/...`，继续执行：
+
+```bash
+cd ~/BZ-reaction-differential-equations
+
+# 把可编译分支的关键文件取回当前分支
+git checkout "$GOOD_BRANCH" -- src/main.cpp docs/bz_model_and_simulation.md ReadMe
+
+# 建一个本地分支保存修复结果
+git switch -C local/recover-build
+
+# 正式编译并生成视频
+g++ -std=c++17 -O2 -o bz_sim src/main.cpp -lX11
+rm -rf output bz.mp4
+./bz_sim --headless --save --steps=24000 --wave-mode=spiral --view=mix --pacemaker-period=240 --layers=4 --ring-spacing=12
+ffmpeg -framerate 30 -i output/frame_%06d.ppm -pix_fmt yuv420p bz.mp4
+```
+
+如果 `GOOD_BRANCH` 为空：说明远端所有分支都编译失败，需要仓库维护者先修 `src/main.cpp`。
