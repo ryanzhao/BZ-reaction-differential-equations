@@ -32,7 +32,7 @@ ffmpeg -framerate 30 -i output/frame_%06d.ppm -pix_fmt yuv420p bz.mp4
 ### A. 螺旋向外扩散（默认推荐）
 
 ```bash
-./bz_sim --view=mix --wave-mode=spiral --pacemaker-period=220 --layers=4 --ring-spacing=12 --orbit=0.20 --omega=0.014 --heterogeneity=0.10 --temporal-mod=0.04 --save --headless --steps=26000
+./bz_sim --view=mix --wave-mode=spiral --pacemaker-period=220 --layers=4 --ring-spacing=12 --orbit=0.10 --omega=0.012 --heterogeneity=0.12 --temporal-mod=0.04 --wavebreak-period=800 --save --headless --steps=26000
 ```
 
 ### B. 靶心波（中心反复外扩）

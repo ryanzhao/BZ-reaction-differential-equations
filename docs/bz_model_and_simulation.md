@@ -242,6 +242,7 @@ excitability, refractory recovery, and self-organized wave patterns.
 - \(\epsilon(x,y)=\epsilon_0(1+\eta(x,y))\)：空间异质性（实验里对应局部浓度/温度/厚度差异）；
 - \(\phi(x,y,t)=\phi_0\,[1+\alpha \eta(x,y)+\beta\sin(\omega t+\theta(x,y))]\)：慢时间调制；
 - \(S(x,y,t)\)：移动或环绕的局部起搏 + 偶发波前断裂（更容易得到持续螺旋臂）。
+- 若希望“从一个点向外衍射并逐渐复杂化”，可令 \(S\) 只有单中心起搏，再通过弱异质性与间歇断裂触发次级结构。
 
 这样能避免“每一圈都完全相同”的单调感，更接近 BZ 视频里“波前演化、分叉、再组织”的观感。
 

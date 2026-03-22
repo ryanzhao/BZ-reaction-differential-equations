@@ -44,7 +44,7 @@ struct Params {
     int pacemaker_radius = 10;
     int layered_rings = 3;
     int ring_spacing = 12;
-    double pacemaker_orbit = 0.18;
+    double pacemaker_orbit = 0.10;
     double pacemaker_omega = 0.012;
     int wavebreak_period = 900;
     double inward_ring_width = 16.0;
@@ -501,11 +501,7 @@ static void apply_pacemaker(const Params& p, int step, Field& u, Field& w) {
         const double orbit = p.pacemaker_orbit * std::min(p.nx, p.ny);
         const int c1x = static_cast<int>(std::round(cx + orbit * std::cos(phase)));
         const int c1y = static_cast<int>(std::round(cy + orbit * std::sin(phase)));
-        const double pi = 3.14159265358979323846;
-        const int c2x = static_cast<int>(std::round(cx + orbit * std::cos(phase + pi)));
-        const int c2y = static_cast<int>(std::round(cy + orbit * std::sin(phase + pi)));
-        apply_layered_source(u, w, c1x, c1y, p.pacemaker_radius, p.layered_rings, p.ring_spacing, 0.80, 0.68);
-        apply_layered_source(u, w, c2x, c2y, p.pacemaker_radius, p.layered_rings, p.ring_spacing, 0.80, 0.68);
+        apply_layered_source(u, w, c1x, c1y, p.pacemaker_radius, p.layered_rings, p.ring_spacing, 0.82, 0.70);
 
         if (p.wavebreak_period > 0 && step % p.wavebreak_period == 0) {
             const int bx = static_cast<int>(std::round(cx + 0.12 * p.nx * std::cos(phase + 0.8)));
