@@ -44,6 +44,10 @@ struct Params {
     int pacemaker_radius = 10;
     int layered_rings = 3;
     int ring_spacing = 12;
+    double pacemaker_orbit = 0.18;
+    double pacemaker_omega = 0.012;
+    int wavebreak_period = 900;
+    double inward_ring_width = 16.0;
 
     enum class ViewField { U, W, Mix };
     ViewField view_field = ViewField::Mix;
@@ -53,6 +57,8 @@ struct Params {
 
     bool auto_contrast = true;
     bool dish_render = true;
+    double heterogeneity = 0.08;
+    double temporal_mod = 0.03;
 };
 
 struct Field {
@@ -348,6 +354,18 @@ static void parse_args(int argc, char** argv, Params& p) {
             p.layered_rings = std::max(1, std::stoi(a.substr(9)));
         } else if (a.rfind("--ring-spacing=", 0) == 0) {
             p.ring_spacing = std::max(4, std::stoi(a.substr(15)));
+        } else if (a.rfind("--orbit=", 0) == 0) {
+            p.pacemaker_orbit = std::clamp(std::stod(a.substr(8)), 0.0, 0.45);
+        } else if (a.rfind("--omega=", 0) == 0) {
+            p.pacemaker_omega = std::clamp(std::stod(a.substr(8)), 0.0, 0.08);
+        } else if (a.rfind("--wavebreak-period=", 0) == 0) {
+            p.wavebreak_period = std::max(80, std::stoi(a.substr(19)));
+        } else if (a.rfind("--inward-width=", 0) == 0) {
+            p.inward_ring_width = std::max(2.0, std::stod(a.substr(15)));
+        } else if (a.rfind("--heterogeneity=", 0) == 0) {
+            p.heterogeneity = std::max(0.0, std::stod(a.substr(16)));
+        } else if (a.rfind("--temporal-mod=", 0) == 0) {
+            p.temporal_mod = std::max(0.0, std::stod(a.substr(15)));
         } else if (a.rfind("--view=", 0) == 0) {
             const std::string v = a.substr(7);
             if (v == "u") {
@@ -414,6 +432,32 @@ static void apply_layered_source(Field& u, Field& w, int cx, int cy, int core_ra
     }
 }
 
+static void apply_boundary_ring_source(const Params& p, Field& u, Field& w, double width, double u_peak,
+                                       double w_peak) {
+    const double cx = 0.5 * (p.nx - 1);
+    const double cy = 0.5 * (p.ny - 1);
+    const double dish_radius = 0.47 * std::min(p.nx, p.ny);
+    const double inner = std::max(0.0, dish_radius - width);
+
+    for (int j = 0; j < p.ny; ++j) {
+        for (int i = 0; i < p.nx; ++i) {
+            double rnorm = 0.0;
+            if (!in_dish(p, i, j, &rnorm)) {
+                continue;
+            }
+            const double dx = i - cx;
+            const double dy = j - cy;
+            const double rr = std::sqrt(dx * dx + dy * dy);
+            if (rr >= inner && rr <= dish_radius) {
+                const double t = (rr - inner) / std::max(1e-9, dish_radius - inner);
+                const double amp = std::exp(-6.0 * t * t);
+                u(i, j) = std::max(u(i, j), 0.10 + u_peak * amp);
+                w(i, j) = std::max(w(i, j), 0.08 + w_peak * amp);
+            }
+        }
+    }
+}
+
 static void seed_spiral_break(const Params& p, Field& u, Field& w) {
     const int cx = p.nx / 2;
     const int cy = p.ny / 2;
@@ -436,7 +480,7 @@ static void seed_spiral_break(const Params& p, Field& u, Field& w) {
     }
 }
 
-static void apply_pacemaker(const Params& p, Field& u, Field& w) {
+static void apply_pacemaker(const Params& p, int step, Field& u, Field& w) {
     if (!p.pacemaker) {
         return;
     }
@@ -449,19 +493,33 @@ static void apply_pacemaker(const Params& p, Field& u, Field& w) {
     }
 
     if (p.wave_mode == Params::WaveMode::Inward || p.wave_mode == Params::WaveMode::Dual) {
-        const int ex = p.nx / 2;
-        const int ey = p.ny / 10;
-        apply_source_patch(u, w, ex, ey, p.pacemaker_radius, 0.95, 0.78);
-        apply_source_patch(u, w, p.nx - ex, ey, p.pacemaker_radius, 0.95, 0.78);
-        apply_source_patch(u, w, ex, p.ny - ey, p.pacemaker_radius, 0.95, 0.78);
-        apply_source_patch(u, w, p.nx - ex, p.ny - ey, p.pacemaker_radius, 0.95, 0.78);
+        apply_boundary_ring_source(p, u, w, p.inward_ring_width, 0.93, 0.72);
     }
 
     if (p.wave_mode == Params::WaveMode::Spiral) {
-        apply_layered_source(u, w, p.nx / 3, p.ny / 2, p.pacemaker_radius, p.layered_rings, p.ring_spacing, 0.82,
-                             0.70);
-        apply_layered_source(u, w, 2 * p.nx / 3, p.ny / 2, p.pacemaker_radius, p.layered_rings, p.ring_spacing,
-                             0.82, 0.70);
+        const double phase = step * p.pacemaker_omega;
+        const double orbit = p.pacemaker_orbit * std::min(p.nx, p.ny);
+        const int c1x = static_cast<int>(std::round(cx + orbit * std::cos(phase)));
+        const int c1y = static_cast<int>(std::round(cy + orbit * std::sin(phase)));
+        const double pi = 3.14159265358979323846;
+        const int c2x = static_cast<int>(std::round(cx + orbit * std::cos(phase + pi)));
+        const int c2y = static_cast<int>(std::round(cy + orbit * std::sin(phase + pi)));
+        apply_layered_source(u, w, c1x, c1y, p.pacemaker_radius, p.layered_rings, p.ring_spacing, 0.80, 0.68);
+        apply_layered_source(u, w, c2x, c2y, p.pacemaker_radius, p.layered_rings, p.ring_spacing, 0.80, 0.68);
+
+        if (p.wavebreak_period > 0 && step % p.wavebreak_period == 0) {
+            const int bx = static_cast<int>(std::round(cx + 0.12 * p.nx * std::cos(phase + 0.8)));
+            const int by = static_cast<int>(std::round(cy + 0.12 * p.ny * std::sin(phase + 0.8)));
+            for (int j = std::max(0, by - 6); j <= std::min(p.ny - 1, by + 6); ++j) {
+                for (int i = std::max(0, bx - 6); i <= std::min(p.nx - 1, bx + 6); ++i) {
+                    const int dx = i - bx;
+                    const int dy = j - by;
+                    if (dx * dx + dy * dy <= 36) {
+                        u(i, j) = std::min(u(i, j), 0.14);
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -472,6 +530,7 @@ int main(int argc, char** argv) {
     Field u(p.nx, p.ny, 0.0), v(p.nx, p.ny, 0.0), w(p.nx, p.ny, 0.0);
     Field u_next(p.nx, p.ny, 0.0), v_next(p.nx, p.ny, 0.0), w_next(p.nx, p.ny, 0.0);
     Field visual(p.nx, p.ny, 0.0);
+    Field hetero(p.nx, p.ny, 0.0), phase_map(p.nx, p.ny, 0.0);
 
     std::mt19937 rng(7);
     std::uniform_real_distribution<double> noise(-4e-4, 4e-4);
@@ -486,6 +545,17 @@ int main(int argc, char** argv) {
                 v(i, j) = 0.0;
                 w(i, j) = 0.0;
             }
+
+            const double cx = 0.5 * (p.nx - 1);
+            const double cy = 0.5 * (p.ny - 1);
+            const double dx = (i - cx) / std::max(1.0, 0.5 * p.nx);
+            const double dy = (j - cy) / std::max(1.0, 0.5 * p.ny);
+            const double r = std::sqrt(dx * dx + dy * dy);
+            const double th = std::atan2(dy, dx);
+            const double radial_band = std::cos(6.5 * r + 0.7 * th);
+            const double azimuth_band = std::sin(3.0 * th - 4.0 * r);
+            hetero(i, j) = p.heterogeneity * (0.55 * radial_band + 0.45 * azimuth_band);
+            phase_map(i, j) = th;
         }
     }
 
@@ -527,9 +597,14 @@ int main(int argc, char** argv) {
                 const double vv = v(i, j);
                 const double ww = w(i, j);
 
-                const double reaction_u = (uu * (1.0 - uu) - p.f * vv * ((uu - p.q) / (uu + p.q))) / p.epsilon;
+                const double theta = phase_map(i, j);
+                const double eps_local = std::max(0.01, p.epsilon * (1.0 + 0.25 * hetero(i, j)));
+                const double phi_local = std::max(
+                    0.01, p.phi * (1.0 + 0.35 * hetero(i, j) + p.temporal_mod * std::sin(0.0012 * step + 3.0 * theta)));
+
+                const double reaction_u = (uu * (1.0 - uu) - p.f * vv * ((uu - p.q) / (uu + p.q))) / eps_local;
                 const double reaction_v = uu - vv;
-                const double reaction_w = p.phi * (uu - ww);
+                const double reaction_w = phi_local * (uu - ww);
 
                 const double du = reaction_u + p.Du * laplacian(u, i, j, p.dx);
                 const double dv = reaction_v + p.Dv * laplacian(v, i, j, p.dx);
@@ -546,7 +621,7 @@ int main(int argc, char** argv) {
         std::swap(w.data, w_next.data);
 
         if (p.pacemaker && step % p.pacemaker_period == 0) {
-            apply_pacemaker(p, u, w);
+            apply_pacemaker(p, step, u, w);
         }
 
         if (renderer && step % p.display_every == 0) {

@@ -223,3 +223,32 @@ excitability, refractory recovery, and self-organized wave patterns.
 \partial_t u = F_u(u,v,w) + D_u\nabla^2u + S_u(x,y,t),
 \]
 其中 \(S_u\) 可以是中心多层环形起搏项，用于构造多圈同步外扩前沿。
+
+## 13) 让图样不“机械重复”的论文一致改法（本程序已采用）
+
+实验中的 BZ 波纹往往不是严格同心重复，而是会出现慢变花瓣/螺旋臂。常见建模做法是把
+“介质异质性 + 缓慢调制 + 局部起搏源”加入到 Oregonator 反应扩散框架：
+
+\[
+\partial_t u=\frac{1}{\epsilon(x,y)}\Big[u(1-u)-f v\frac{u-q}{u+q}\Big]+D_u\nabla^2u+S(x,y,t),
+\]
+\[
+\partial_t v=u-v+D_v\nabla^2v,\qquad
+\partial_t w=\phi(x,y,t)\,(u-w)+D_w\nabla^2w.
+\]
+
+其中：
+
+- \(\epsilon(x,y)=\epsilon_0(1+\eta(x,y))\)：空间异质性（实验里对应局部浓度/温度/厚度差异）；
+- \(\phi(x,y,t)=\phi_0\,[1+\alpha \eta(x,y)+\beta\sin(\omega t+\theta(x,y))]\)：慢时间调制；
+- \(S(x,y,t)\)：移动或环绕的局部起搏 + 偶发波前断裂（更容易得到持续螺旋臂）。
+
+这样能避免“每一圈都完全相同”的单调感，更接近 BZ 视频里“波前演化、分叉、再组织”的观感。
+
+### 建议重点阅读（与上式直接相关）
+
+1. Field, Körös, Noyes (1972), JACS：FKN 机理基础。  
+2. Field, Noyes (1974), J. Chem. Phys.：Oregonator 经典模型。  
+3. Tyson, Fife (1980), J. Chem. Phys.：BZ 靶心波/反应扩散图样。  
+4. Winfree (1972), Science：化学螺旋波经典实验图像。  
+5. Zhabotinsky et al. / photosensitive Oregonator 系列：将外场与时空调制显式写入动力学，解释波前慢变与螺旋演化。
