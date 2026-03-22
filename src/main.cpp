@@ -59,6 +59,9 @@ struct Params {
     bool dish_render = true;
     double heterogeneity = 0.08;
     double temporal_mod = 0.03;
+    int secondary_centers = 10;
+    int secondary_start = 2800;
+    double secondary_strength = 0.48;
 };
 
 struct Field {
@@ -366,6 +369,12 @@ static void parse_args(int argc, char** argv, Params& p) {
             p.heterogeneity = std::max(0.0, std::stod(a.substr(16)));
         } else if (a.rfind("--temporal-mod=", 0) == 0) {
             p.temporal_mod = std::max(0.0, std::stod(a.substr(15)));
+        } else if (a.rfind("--secondary-centers=", 0) == 0) {
+            p.secondary_centers = std::max(0, std::stoi(a.substr(20)));
+        } else if (a.rfind("--secondary-start=", 0) == 0) {
+            p.secondary_start = std::max(0, std::stoi(a.substr(18)));
+        } else if (a.rfind("--secondary-strength=", 0) == 0) {
+            p.secondary_strength = std::max(0.0, std::stod(a.substr(21)));
         } else if (a.rfind("--view=", 0) == 0) {
             const std::string v = a.substr(7);
             if (v == "u") {
@@ -530,6 +539,7 @@ int main(int argc, char** argv) {
 
     std::mt19937 rng(7);
     std::uniform_real_distribution<double> noise(-4e-4, 4e-4);
+    std::uniform_real_distribution<double> uni01(0.0, 1.0);
 
     for (int j = 0; j < p.ny; ++j) {
         for (int i = 0; i < p.nx; ++i) {
@@ -558,6 +568,31 @@ int main(int argc, char** argv) {
     apply_layered_source(u, w, p.nx / 2, p.ny / 2, std::max(10, p.nx / 26), p.layered_rings, p.ring_spacing, 0.9, 0.75);
     if (p.wave_mode == Params::WaveMode::Spiral) {
         seed_spiral_break(p, u, w);
+    }
+
+    struct CenterSite {
+        int x;
+        int y;
+        int period;
+        int phase;
+        int radius;
+    };
+    std::vector<CenterSite> secondary_sites;
+    secondary_sites.reserve(std::max(0, p.secondary_centers));
+    for (int trial = 0; trial < p.secondary_centers * 40 && static_cast<int>(secondary_sites.size()) < p.secondary_centers;
+         ++trial) {
+        const int i = static_cast<int>(uni01(rng) * (p.nx - 1));
+        const int j = static_cast<int>(uni01(rng) * (p.ny - 1));
+        if (!in_dish(p, i, j)) {
+            continue;
+        }
+        if (std::hypot(i - 0.5 * (p.nx - 1), j - 0.5 * (p.ny - 1)) < 0.12 * p.nx) {
+            continue;
+        }
+        const int period = 140 + static_cast<int>(90.0 * uni01(rng));
+        const int phase = static_cast<int>(period * uni01(rng));
+        const int radius = 4 + static_cast<int>(7.0 * uni01(rng));
+        secondary_sites.push_back({i, j, period, phase, radius});
     }
 
     std::unique_ptr<X11Renderer> renderer;
@@ -618,6 +653,14 @@ int main(int argc, char** argv) {
 
         if (p.pacemaker && step % p.pacemaker_period == 0) {
             apply_pacemaker(p, step, u, w);
+        }
+        if (p.secondary_centers > 0 && step >= p.secondary_start) {
+            for (const auto& s : secondary_sites) {
+                if (((step + s.phase) % s.period) == 0) {
+                    const double amp = p.secondary_strength * (0.9 + 0.3 * std::sin(0.001 * step + 0.2 * s.x));
+                    apply_layered_source(u, w, s.x, s.y, s.radius, 2, p.ring_spacing, amp, 0.85 * amp);
+                }
+            }
         }
 
         if (renderer && step % p.display_every == 0) {

@@ -32,7 +32,7 @@ ffmpeg -framerate 30 -i output/frame_%06d.ppm -pix_fmt yuv420p bz.mp4
 ### A. 螺旋向外扩散（默认推荐）
 
 ```bash
-./bz_sim --view=mix --wave-mode=spiral --pacemaker-period=220 --layers=4 --ring-spacing=12 --orbit=0.10 --omega=0.012 --heterogeneity=0.12 --temporal-mod=0.04 --wavebreak-period=800 --save --headless --steps=26000
+./bz_sim --view=mix --wave-mode=spiral --pacemaker-period=220 --layers=4 --ring-spacing=12 --orbit=0.10 --omega=0.012 --heterogeneity=0.12 --temporal-mod=0.04 --wavebreak-period=800 --secondary-centers=14 --secondary-start=2600 --secondary-strength=0.52 --save --headless --steps=26000
 ```
 
 ### B. 靶心波（中心反复外扩）
@@ -66,6 +66,9 @@ ffmpeg -framerate 30 -i output/frame_%06d.ppm -pix_fmt yuv420p bz.mp4
 - `--inward-width=18` inward/dual 模式边界入射环带宽度
 - `--heterogeneity=0.10` 介质空间异质性强度（增加“不是重复同一圈”的演化感）
 - `--temporal-mod=0.04` 慢时间调制强度（让波速/恢复节律缓慢变化）
+- `--secondary-centers=14` 次级激发中心数量（会产生大小不一圆环与不均匀线条）
+- `--secondary-start=2600` 次级中心开始激发的步数
+- `--secondary-strength=0.52` 次级中心激发强度
 
 ## 6) WSL 更新后编译报 `redeclaration` 的快速修复
 
